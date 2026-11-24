@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>KML to CSV</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 /* VOICE: a field-lab utility, calm and exact, for people who just want their placemarks in a spreadsheet.
@@ -39,9 +41,11 @@ h2{font:600 22px/1.2 "IBM Plex Sans Condensed",sans-serif;margin:0 0 12px}
 .opts .row span{font-size:14px;color:var(--mute)}
 .plot{position:relative;min-height:380px;border-radius:14px;background:var(--land);border:1px solid var(--line);overflow:hidden}
 .plot>svg{position:absolute;inset:0;width:100%;height:100%}
-.legend{position:absolute;left:12px;bottom:10px;display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--mute);background:color-mix(in srgb,var(--land) 85%,transparent);padding:4px 8px;border-radius:6px}
+#lmap{position:absolute;inset:0;z-index:1;background:var(--land)}#lmap[hidden]{display:none}
+.leaflet-control-layers label{font-size:14px;line-height:1.6}
+.legend{z-index:500;position:absolute;left:12px;bottom:10px;display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--mute);background:color-mix(in srgb,var(--land) 85%,transparent);padding:4px 8px;border-radius:6px}
 .legend i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:5px;vertical-align:-1px}
-.empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--mute);font-size:15px}.empty[hidden]{display:none}
+.empty{z-index:450;pointer-events:none;position:absolute;inset:0;display:grid;place-items:center;color:var(--mute);font-size:15px}.empty[hidden]{display:none}
 .bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin:28px 0 14px}
 .sum{font-size:17px}.sum b{font-variant-numeric:tabular-nums}
 .acts{display:flex;flex-wrap:wrap;gap:10px}
@@ -93,8 +97,8 @@ code{overflow-wrap:anywhere;font-size:14px}
 <label><input type="checkbox" id="bom" checked>Excel-friendly encoding (keeps accents and symbols)</label>
 </div>
 </section>
-<section class="plot" id="plot" aria-label="Plot of converted features"><svg id="svg"></svg><div class="empty" id="empty" hidden>No mappable features</div>
-<div class="legend"><span><i style="background:var(--buoy)"></i>Points</span><span><i style="background:#e0533d"></i>Lines and tracks</span><span><i style="background:#2f8fbf"></i>Polygons</span></div></section>
+<section class="plot" id="plot" aria-label="Plot of converted features"><svg id="svg"></svg><div id="lmap" hidden></div><div class="empty" id="empty" hidden>No mappable features</div>
+<div class="legend"><span><i style="background:var(--buoy)"></i>Points</span><span><i style="background:#ff5a3d"></i>Lines and tracks</span><span><i style="background:#57b8e8"></i>Polygons</span></div></section>
 </div>
 
 <div class="bar">
@@ -114,6 +118,7 @@ code{overflow-wrap:anywhere;font-size:14px}
 <li><b>folder</b> is the path of Documents and Folders above each placemark, joined with " / ", so you can filter by survey or site.</li>
 <li><b>Attribute fields</b> come from ExtendedData (Data and SchemaData) and, if the option is on, from two-column tables inside descriptions, which is how ArcGIS and many other tools export attributes.</li>
 <li><b>length_m</b> and <b>area_m2</b> are geodesic estimates for lines, tracks and polygon outlines. Holes in polygons are not subtracted.</li>
+<li><b>The map</b> offers satellite, ocean and street basemaps from Esri and OpenStreetMap. Loading tiles tells those services which area you are viewing, but your file contents never leave the browser. Without internet the page falls back to a plain plot.</li>
 <li><b>Network links</b>, image overlays and 3D models have no rows. KMZ files with several KML files inside are all read.</li>
 </ul>
 </div></section>
@@ -121,7 +126,7 @@ code{overflow-wrap:anywhere;font-size:14px}
 <script>
 {
 const $=id=>document.getElementById(id);
-const ui={drop:$('drop'),pick:$('pick'),status:$('status'),mode:$('mode'),pos:$('pos'),strip:$('strip'),tbl:$('tbl'),wkt:$('wkt'),drop0:$('drop0'),bom:$('bom'),svg:$('svg'),empty:$('empty'),sum:$('sum'),save:$('save'),copy:$('copy'),note:$('note'),tablewrap:$('tablewrap'),more:$('more'),colnote:$('colnote'),allcols:$('allcols')};
+const ui={drop:$('drop'),pick:$('pick'),status:$('status'),mode:$('mode'),pos:$('pos'),strip:$('strip'),tbl:$('tbl'),wkt:$('wkt'),drop0:$('drop0'),bom:$('bom'),svg:$('svg'),lmap:$('lmap'),empty:$('empty'),sum:$('sum'),save:$('save'),copy:$('copy'),note:$('note'),tablewrap:$('tablewrap'),more:$('more'),colnote:$('colnote'),allcols:$('allcols')};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let files=[],rows=[],cols=[],feats=[],csv='',outName='kml-export.csv',dl=null,sumTail='',off=new Set();
 try{off=new Set(JSON.parse(localStorage.getItem('kml2csv-off')||'[]'))}catch(e){}
@@ -246,7 +251,7 @@ function build(){
       if(tbl)for(const [k,v] of Object.entries(descTable(rawDesc)))if(!(k in attrs))attrs[k]=v;
       const keyed={};for(const [k,v] of Object.entries(attrs)){let key=BASE.includes(k)||k==='wkt'?'attr_'+k:k;keyed[key]=v;if(!extra.includes(key))extra.push(key)}
       if(wkt)keyed.wkt=wktOf(g);
-      g.forEach(p=>feats.push(p));
+      g.forEach(p=>feats.push({...p,name:base.name}));
       if(vmode&&flat.length){
         g.forEach((p,pi)=>p.c.forEach((c,vi)=>rows.push({...base,...keyed,part:String(pi+1),vertex:String(vi+1),latitude:f6(c[1]),longitude:f6(c[0]),altitude:f6(c[2]),time:c[3]||base.time})));
       }else{
@@ -286,7 +291,60 @@ function render(){
 }
 
 /* ---------- plot ---------- */
+/* ---------- basemap (Leaflet) with plain-plot fallback ---------- */
+let map=null,fg=null,lfail=false;
+function leafletOK(){
+  if(lfail||!window.L)return false;
+  const t=document.createElement('div');t.className='leaflet-container';t.style.display='none';document.body.append(t);
+  const ok=getComputedStyle(t).overflow==='hidden';t.remove();return ok;
+}
+function failMap(){if(lfail)return;lfail=true;try{map.remove()}catch(e){}map=null;ui.lmap.hidden=true;draw()}
+function initMap(){
+  const esri=(path,o)=>L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/'+path+'/MapServer/tile/{z}/{y}/{x}',Object.assign({maxZoom:19},o));
+  const bases={
+    'Satellite':esri('World_Imagery',{maxNativeZoom:19,attribution:'Imagery &copy; Esri, Maxar, Earthstar Geographics'}),
+    'Ocean':L.layerGroup([esri('Ocean/World_Ocean_Base',{maxNativeZoom:13,attribution:'&copy; Esri, GEBCO, NOAA, Garmin'}),esri('Ocean/World_Ocean_Reference',{maxNativeZoom:13})]),
+    'Streets':L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}),
+    'No basemap':L.layerGroup()
+  };
+  const labels=esri('Reference/World_Boundaries_and_Places',{maxNativeZoom:19});
+  map=L.map(ui.lmap,{preferCanvas:true});
+  let pick='Satellite';try{pick=localStorage.getItem('kml2csv-base')||pick}catch(e){}
+  if(!bases[pick])pick='Satellite';
+  bases[pick].addTo(map);
+  L.control.layers(bases,{'Place labels':labels},{position:'topright'}).addTo(map);
+  map.on('baselayerchange',e=>{try{localStorage.setItem('kml2csv-base',e.name)}catch(x){}});
+  fg=L.featureGroup().addTo(map);
+  let loads=0,errs=0;
+  const watch=l=>{l.on('tileload',()=>{loads++});l.on('tileerror',()=>{errs++;if(!loads&&errs>=4)failMap()})};
+  Object.values(bases).concat(labels).forEach(b=>b instanceof L.LayerGroup?b.eachLayer(watch):watch(b));
+}
+function drawMap(){
+  fg.clearLayers();
+  const ll=c=>[c[1],c[0]],nPts=feats.filter(p=>p.t==='Point').length;
+  for(const p of feats){
+    if(!p.c.length)continue;
+    let lay;
+    if(p.t==='Point')lay=L.circleMarker(ll(p.c[0]),{radius:nPts>2000?3:6,color:'#3d2d00',weight:1.5,fillColor:'#f2b705',fillOpacity:1});
+    else if(p.t==='Polygon')lay=L.polygon(p.c.map(ll),{color:'#57b8e8',weight:2.5,fillOpacity:.25});
+    else lay=L.polyline(p.c.map(ll),{color:'#ff5a3d',weight:3.5});
+    if(p.name)lay.bindTooltip(esc(p.name));
+    fg.addLayer(lay);
+  }
+  const has=fg.getLayers().length;ui.empty.hidden=!!has;
+  map.invalidateSize();
+  if(has)map.fitBounds(fg.getBounds(),{padding:[32,32],maxZoom:17});else map.setView([20,0],1);
+}
 function draw(){
+  if(leafletOK()){
+    if(!map)initMap();
+    ui.lmap.hidden=false;ui.svg.innerHTML='';
+    drawMap();return;
+  }
+  ui.lmap.hidden=true;
+  plot();
+}
+function plot(){
   const s=ui.svg,W=s.clientWidth,H=s.clientHeight,pts=feats.flatMap(p=>p.c);
   ui.empty.hidden=!!pts.length;
   if(!pts.length||!W){s.innerHTML='';return}
@@ -296,13 +354,13 @@ function draw(){
   const X=c=>(ox+(c[0]-x0)*k*sc).toFixed(1),Y=c=>(oy+(y1-c[1])*sc).toFixed(1),P=c=>c.map(v=>X(v)+','+Y(v)).join(' ');
   const g=[];
   for(let i=0;i<6;i++){const gx=(W/6)*i,gy=(H/6)*i;g.push('<line x1="'+gx+'" y1="0" x2="'+gx+'" y2="'+H+'" stroke="var(--line)" stroke-width=".6"/><line x1="0" y1="'+gy+'" x2="'+W+'" y2="'+gy+'" stroke="var(--line)" stroke-width=".6"/>')}
-  feats.filter(p=>p.t==='Polygon'&&p.c.length>2).forEach(p=>g.push('<polygon points="'+P(p.c)+'" fill="#2f8fbf" fill-opacity=".28" stroke="#2f8fbf" stroke-width="1.5"/>'));
-  feats.filter(p=>(p.t==='LineString'||p.t==='Track')&&p.c.length>1).forEach(p=>g.push('<polyline points="'+P(p.c)+'" fill="none" stroke="#e0533d" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>'));
+  feats.filter(p=>p.t==='Polygon'&&p.c.length>2).forEach(p=>g.push('<polygon points="'+P(p.c)+'" fill="#57b8e8" fill-opacity=".28" stroke="#57b8e8" stroke-width="1.5"/>'));
+  feats.filter(p=>(p.t==='LineString'||p.t==='Track')&&p.c.length>1).forEach(p=>g.push('<polyline points="'+P(p.c)+'" fill="none" stroke="#ff5a3d" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>'));
   const dots=feats.filter(p=>p.t==='Point'&&p.c.length);const r=dots.length>2000?1.6:dots.length>300?3:5;
   dots.forEach(p=>g.push('<circle cx="'+X(p.c[0])+'" cy="'+Y(p.c[0])+'" r="'+r+'" fill="#f2b705" stroke="#5b4300" stroke-width="'+(r>3?1:.4)+'"/>'));
   s.setAttribute('viewBox','0 0 '+W+' '+H);s.innerHTML=g.join('');
 }
-const ro=new ResizeObserver(draw);ro.observe(ui.svg);
+const ro=new ResizeObserver(()=>{if(map)map.invalidateSize();else plot()});ro.observe(ui.svg);
 
 /* ---------- events ---------- */
 ui.drop.addEventListener('click',()=>ui.pick.click());

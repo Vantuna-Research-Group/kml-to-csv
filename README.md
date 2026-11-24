@@ -14,7 +14,7 @@ Files are read in your browser and never uploaded. The page also works offline: 
 - Attribute fields come from ExtendedData (`Data` and `SchemaData`). Two-column tables inside descriptions, which ArcGIS and other tools use for attributes, can be turned into columns too.
 - Optional WKT geometry column for QGIS or ArcGIS.
 - Tick or untick each column heading in the preview to choose what gets exported. Choices are remembered in that browser.
-- A plot of all features, so you can check nothing was dropped before exporting.
+- A map of all features on a satellite, ocean or street basemap (Esri and OpenStreetMap tiles), so you can check nothing was dropped before exporting. Hover a feature for its name. Without internet the page shows a plain plot instead.
 
 ## Limits
 
@@ -25,6 +25,6 @@ Files are read in your browser and never uploaded. The page also works offline: 
 
 ## Updating
 
-Everything is in `index.html`: HTML, CSS and JavaScript, with no build step and no dependencies apart from Google Fonts. Edit it, commit to `main`, and GitHub Pages republishes the site within a minute or two.
+Everything is in `index.html`: HTML, CSS and JavaScript, with no build step. It loads Leaflet 1.9.4 from cdnjs for the map and Google Fonts for type; both are optional and the page still works without them. Edit it, commit to `main`, and GitHub Pages republishes the site within a minute or two.
 
 To test changes locally, open `index.html` in a browser. It loads a small made-up sample of San Diego Bay seine stations so there is always something to look at.
