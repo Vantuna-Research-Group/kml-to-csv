@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>KML to CSV</title>
+<title>Map file converter</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-/* VOICE: a field-lab utility, calm and exact, for people who just want their placemarks in a spreadsheet.
+/* VOICE: a field-lab utility, calm and exact, for people who just want their map data in another format.
    IDEA: a nautical chart plotter: deep-water header, chart-paper work area, buoy-yellow marks.
-   PICTURE: the drop zone and a live plot of every converted feature, so you can see nothing went missing.
+   PICTURE: the drop zone and a live map of every converted feature, so you can see nothing went missing.
    COLOUR and TYPE: deep sea blue dominant, pale chart blue support, buoy yellow accent; IBM Plex Sans Condensed titles, Plex Sans body.
-   LAYOUT: title band, then drop zone + options beside the plot, then summary, actions and the preview table. */
+   LAYOUT: title band, then drop zone + format + options beside the map, then summary, notes, actions and the preview table. */
 :root{color-scheme:light dark;--bg:light-dark(#ffffff,#0a1620);--ink:light-dark(#0c2233,#e4edf3);--mute:light-dark(#4d6577,#93a9b8);--sea:light-dark(#0b4f71,#0e3a54);--pale:light-dark(#e6f0f5,#11283a);--line:light-dark(#c9dbe5,#24435a);--buoy:#f2b705;--land:light-dark(#f3f6f2,#0d1d29)}
 :root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
 *{box-sizing:border-box;min-width:0}
@@ -22,89 +22,119 @@ body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "IBM Plex San
 .wrap{max-width:1240px;margin:0 auto}
 header.band{background:var(--sea);color:#fff;padding-bottom:clamp(22px,3vw,36px)}
 h1{font:600 clamp(32px,5vw,48px)/1.05 "IBM Plex Sans Condensed",sans-serif;margin:0 0 8px;text-wrap:balance}
-header p{margin:0;max-width:66ch;color:#d4e6f0}
+header p{margin:0;max-width:70ch;color:#d4e6f0}
 h2{font:600 22px/1.2 "IBM Plex Sans Condensed",sans-serif;margin:0 0 12px}
 .grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:24px;align-items:stretch}
 @media(max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
-.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;min-height:180px;border:2px dashed var(--line);border-radius:14px;background:var(--pale);padding:24px;cursor:pointer;transition:border-color .15s,background .15s}
+.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;min-height:150px;border:2px dashed var(--line);border-radius:14px;background:var(--pale);padding:20px;cursor:pointer;transition:border-color .15s,background .15s}
 .drop.over{border-color:var(--buoy);background:light-dark(#fff8e0,#2a2610)}
 .drop strong{font-size:19px}
 .drop span{color:var(--mute);font-size:14px}
 .btn{font:inherit;font-weight:600;min-height:44px;padding:0 18px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
 .btn.main{background:var(--buoy);border-color:var(--buoy);color:#1d1600}
+.btn:disabled{opacity:.45;cursor:default}
 .btn:focus-visible,.drop:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--buoy);outline-offset:2px}
-.opts{margin-top:18px;display:grid;gap:12px}
+.fmt{border:0;padding:0;margin:16px 0 0;display:flex}
+.fmt legend{font-size:14px;color:var(--mute);margin-bottom:4px;padding:0}
+.fmt label{flex:1;position:relative}
+.fmt input{position:absolute;opacity:0;inset:0;margin:0}
+.fmt span{display:grid;place-items:center;min-height:44px;border:1px solid var(--line);border-left-width:0;font-weight:600;cursor:pointer;background:var(--bg)}
+.fmt label:first-of-type span{border-left-width:1px;border-radius:10px 0 0 10px}.fmt label:last-of-type span{border-radius:0 10px 10px 0}
+.fmt input:checked+span{background:var(--sea);border-color:var(--sea);color:#fff}
+.fmt input:focus-visible+span{outline:3px solid var(--buoy);outline-offset:2px;position:relative;z-index:1}
+.opts{margin-top:16px;display:grid;gap:12px}
+.opts[hidden]{display:none}
 .opts label{display:flex;gap:10px;align-items:center;font-size:15px}
 .opts input[type=checkbox]{width:20px;height:20px;accent-color:var(--sea);flex:none}
 .opts select{font:inherit;font-size:16px;min-height:44px;padding:0 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
 .opts .row{display:grid;gap:4px}
-.opts .row span{font-size:14px;color:var(--mute)}
-.plot{position:relative;min-height:380px;border-radius:14px;background:var(--land);border:1px solid var(--line);overflow:hidden}
+.opts .row>span{font-size:14px;color:var(--mute)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.csvin{border-top:1px solid var(--line);padding-top:12px}
+.plot{position:relative;min-height:420px;border-radius:14px;background:var(--land);border:1px solid var(--line);overflow:hidden}
 .plot>svg{position:absolute;inset:0;width:100%;height:100%}
 #lmap{position:absolute;inset:0;z-index:1;background:var(--land)}#lmap[hidden]{display:none}
 .leaflet-control-layers label{font-size:14px;line-height:1.6}
 .legend{z-index:500;position:absolute;left:12px;bottom:10px;display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--mute);background:color-mix(in srgb,var(--land) 85%,transparent);padding:4px 8px;border-radius:6px}
 .legend i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:5px;vertical-align:-1px}
 .empty{z-index:450;pointer-events:none;position:absolute;inset:0;display:grid;place-items:center;color:var(--mute);font-size:15px}.empty[hidden]{display:none}
-.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin:28px 0 14px}
+.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin:28px 0 12px}
 .sum{font-size:17px}.sum b{font-variant-numeric:tabular-nums}
 .acts{display:flex;flex-wrap:wrap;gap:10px}
 .note{font-size:14px;color:var(--mute);margin:0 0 10px}
+.notes{margin:0 0 14px;padding:10px 14px 10px 32px;border-radius:10px;background:light-dark(#fff6d6,#2a2410);font-size:14px}
+.notes[hidden]{display:none}.notes li{margin:2px 0}
 .status{font-size:14px;color:var(--mute);min-height:1.4em;margin-top:8px}
 .err{color:light-dark(#a3271d,#ff9b8f)}
 .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;max-height:520px;overflow-y:auto}
 table{border-collapse:collapse;font-size:14px;width:max-content;min-width:100%}
 th,td{padding:7px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;max-width:28ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-th{position:sticky;top:0;background:var(--pale);font-weight:600;padding:0}
+th{position:sticky;top:0;background:var(--pale);font-weight:600;padding:0;z-index:2}
 th label{display:flex;gap:8px;align-items:center;min-height:44px;padding:0 12px;cursor:pointer}
 th input{width:18px;height:18px;accent-color:var(--sea);flex:none;margin:0}
 th.off span{text-decoration:line-through;color:var(--mute)}
 td.off{opacity:.35}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
 .colbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:10px}.colbar .note{margin:0}
 .btn.small{min-height:36px;padding:0 14px;font-size:14px}
-td.n{text-align:right;font-variant-numeric:tabular-nums}
 .tips{background:var(--pale)}
-.tips ul{margin:0;padding-left:1.2em;max-width:75ch}.tips li{margin-bottom:8px}
+.tips .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:8px 40px}
+.tips ul{margin:0;padding-left:1.2em}.tips li{margin-bottom:8px}
 code{overflow-wrap:anywhere;font-size:14px}
-@media(max-width:600px){.plot{min-height:300px}th,td{max-width:20ch}}
+@media(max-width:600px){.plot{min-height:320px}th,td{max-width:20ch}.pair{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){.drop{transition:none}}
 </style>
 </head>
 <body>
 <header class="band"><div class="wrap">
-<h1>KML and KMZ to CSV</h1>
-<p>Drop Google Earth files here and get one spreadsheet row per placemark, with latitude, longitude, folder, description and every attribute field. Files are read in your browser and never uploaded.</p>
+<h1>Map file converter</h1>
+<p>Convert between KML, KMZ, GPX, GeoJSON and CSV. Drop files, pick an output, check the map and table, then download. Files are read in your browser and never uploaded.</p>
 </div></header>
 
 <main class="band"><div class="wrap">
 <div class="grid">
 <section>
-<div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose KML or KMZ files">
-<strong>Drop .kml or .kmz files</strong>
-<span>or click to choose. Several files go into one CSV.</span>
+<div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose map files">
+<strong>Drop map files</strong>
+<span>.kml .kmz .gpx .geojson .csv, or click to choose. Several files are combined.</span>
 </div>
-<input type="file" id="pick" accept=".kml,.kmz" multiple hidden>
+<input type="file" id="pick" accept=".kml,.kmz,.gpx,.geojson,.json,.csv,.tsv,.txt,.zip,.shp" multiple hidden>
 <div class="status" id="status"></div>
-<div class="opts">
+
+<fieldset class="fmt" id="fmt"><legend>Convert to</legend>
+<label><input type="radio" name="fmt" value="csv" checked><span>CSV</span></label>
+<label><input type="radio" name="fmt" value="kml"><span>KML</span></label>
+<label><input type="radio" name="fmt" value="gpx"><span>GPX</span></label>
+<label><input type="radio" name="fmt" value="geojson"><span>GeoJSON</span></label>
+</fieldset>
+
+<div class="opts" id="csvopts">
 <div class="row"><span>Rows</span>
-<select id="mode"><option value="feature">One row per placemark</option><option value="vertex">One row per vertex (tracks, transects)</option></select></div>
+<select id="mode"><option value="feature">One row per feature</option><option value="vertex">One row per vertex (tracks, transects)</option></select></div>
 <div class="row"><span>Lat/long for lines and polygons</span>
 <select id="pos"><option value="first">First vertex</option><option value="centroid">Centre (mean of vertices)</option></select></div>
-<label><input type="checkbox" id="strip" checked>Plain-text descriptions (remove HTML)</label>
-<label><input type="checkbox" id="tbl" checked>Turn attribute tables in descriptions into columns</label>
 <label><input type="checkbox" id="wkt">Add a WKT geometry column (for QGIS or ArcGIS)</label>
-<label><input type="checkbox" id="drop0" checked>Leave out columns that are empty in every row</label>
 <label><input type="checkbox" id="bom" checked>Excel-friendly encoding (keeps accents and symbols)</label>
 </div>
+<div class="opts">
+<label><input type="checkbox" id="strip" checked>Plain-text descriptions (remove HTML)</label>
+<label><input type="checkbox" id="tbl" checked>Turn attribute tables in descriptions into columns</label>
+<label><input type="checkbox" id="drop0" checked>Leave out columns that are empty in every row</label>
+</div>
+<div class="opts csvin" id="csvin" hidden>
+<div class="row"><span>CSV input: coordinate columns</span>
+<div class="pair"><select id="latcol" aria-label="Latitude column"></select><select id="loncol" aria-label="Longitude column"></select></div></div>
+</div>
 </section>
-<section class="plot" id="plot" aria-label="Plot of converted features"><svg id="svg"></svg><div id="lmap" hidden></div><div class="empty" id="empty" hidden>No mappable features</div>
+<section class="plot" id="plot" aria-label="Map of converted features"><svg id="svg"></svg><div id="lmap" hidden></div><div class="empty" id="empty" hidden>No mappable features</div>
 <div class="legend"><span><i style="background:var(--buoy)"></i>Points</span><span><i style="background:#ff5a3d"></i>Lines and tracks</span><span><i style="background:#57b8e8"></i>Polygons</span></div></section>
 </div>
 
 <div class="bar">
 <div class="sum" id="sum"></div>
-<div class="acts"><button class="btn main" id="save">Download CSV</button><button class="btn" id="copy">Copy CSV</button></div>
+<div class="acts"><button class="btn main" id="save">Download</button><button class="btn" id="copy">Copy</button></div>
 </div>
+<ul class="notes" id="notes" hidden></ul>
 <p class="note" id="note">Showing a made-up sample of San Diego Bay seine stations. Drop your own files to replace it.</p>
 <div class="colbar"><p class="note" id="colnote"></p><button class="btn small" id="allcols" hidden>Include all columns</button></div>
 <div class="scroll" id="tablewrap"></div>
@@ -112,26 +142,35 @@ code{overflow-wrap:anywhere;font-size:14px}
 </div></main>
 
 <section class="band tips"><div class="wrap">
-<h2>What ends up in the CSV</h2>
+<h2>How conversions work</h2>
+<div class="cols">
 <ul>
-<li><b>Coordinates</b> are decimal degrees, WGS84, written exactly as stored in the KML. Altitude is in metres when the file has it.</li>
-<li><b>folder</b> is the path of Documents and Folders above each placemark, joined with " / ", so you can filter by survey or site.</li>
-<li><b>Attribute fields</b> come from ExtendedData (Data and SchemaData) and, if the option is on, from two-column tables inside descriptions, which is how ArcGIS and many other tools export attributes.</li>
-<li><b>length_m</b> and <b>area_m2</b> are geodesic estimates for lines, tracks and polygon outlines. Holes in polygons are not subtracted.</li>
-<li><b>The map</b> offers satellite, ocean and street basemaps from Esri and OpenStreetMap. Loading tiles tells those services which area you are viewing, but your file contents never leave the browser. Without internet the page falls back to a plain plot.</li>
-<li><b>Network links</b>, image overlays and 3D models have no rows. KMZ files with several KML files inside are all read.</li>
+<li><b>Coordinates</b> are decimal degrees, WGS84, as stored in the source file. Altitude is in metres when the file has it.</li>
+<li><b>CSV input</b> needs latitude and longitude columns, found by name (lat, latitude, lon, long, lng, x, y) or chosen from the lists. Degrees-minutes such as <code>32°42.69'N</code> work too. A WKT column, if present, is used for lines and polygons.</li>
+<li><b>folder</b> is the path of KML Documents and Folders above each feature. GPX items get Waypoints, Routes or Tracks. KML output rebuilds the folders from it.</li>
+<li><b>Attribute fields</b> come from KML ExtendedData, two-column tables in descriptions, GPX comment, symbol and type, GeoJSON properties and extra CSV columns. Untick a column in the preview to leave it out of any format.</li>
 </ul>
+<ul>
+<li><b>GPX</b> has no polygons or attribute table. Polygon outlines become closed tracks, and attributes go into each item's comment.</li>
+<li><b>KML output</b> uses standard colours. Original KML styles and icons are not carried over.</li>
+<li><b>length_m</b> and <b>area_m2</b> are geodesic estimates. Polygon holes are subtracted from area.</li>
+<li><b>The map</b> offers satellite, ocean and street basemaps from Esri and OpenStreetMap. Loading tiles tells those services which area you are viewing, but your file contents never leave the browser. Without internet the page falls back to a plain plot.</li>
+<li><b>Not converted:</b> KML network links, image overlays and 3D models. Shapefiles are planned next.</li>
+</ul>
+</div>
 </div></section>
 
 <script>
 {
 const $=id=>document.getElementById(id);
-const ui={drop:$('drop'),pick:$('pick'),status:$('status'),mode:$('mode'),pos:$('pos'),strip:$('strip'),tbl:$('tbl'),wkt:$('wkt'),drop0:$('drop0'),bom:$('bom'),svg:$('svg'),lmap:$('lmap'),empty:$('empty'),sum:$('sum'),save:$('save'),copy:$('copy'),note:$('note'),tablewrap:$('tablewrap'),more:$('more'),colnote:$('colnote'),allcols:$('allcols')};
+const ui={drop:$('drop'),pick:$('pick'),status:$('status'),fmt:$('fmt'),csvopts:$('csvopts'),mode:$('mode'),pos:$('pos'),strip:$('strip'),tbl:$('tbl'),wkt:$('wkt'),drop0:$('drop0'),bom:$('bom'),csvin:$('csvin'),latcol:$('latcol'),loncol:$('loncol'),svg:$('svg'),lmap:$('lmap'),empty:$('empty'),sum:$('sum'),save:$('save'),copy:$('copy'),notes:$('notes'),note:$('note'),tablewrap:$('tablewrap'),more:$('more'),colnote:$('colnote'),allcols:$('allcols')};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let files=[],rows=[],cols=[],feats=[],csv='',outName='kml-export.csv',dl=null,sumTail='',off=new Set();
-try{off=new Set(JSON.parse(localStorage.getItem('kml2csv-off')||'[]'))}catch(e){}
-const keepOff=()=>{try{localStorage.setItem('kml2csv-off',JSON.stringify([...off]))}catch(e){}};
+const xe=s=>esc(String(s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,''));
+const store={get(k,d){try{const v=localStorage.getItem('mapconv-'+k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem('mapconv-'+k,JSON.stringify(v))}catch(e){}}};
 
+let files=[],feats=[],inNotes=[],csvHeads=[],rows=[],cols=[],attrKeys=[],outText='',outNotes=[],baseName='sample-seine-stations',sumIn='',dl=null;
+let off=new Set(store.get('off',[])),fmt=store.get('format','csv');
+const EXT={csv:'csv',kml:'kml',gpx:'gpx',geojson:'geojson'},MIME={csv:'text/csv',kml:'application/vnd.google-earth.kml+xml',gpx:'application/gpx+xml',geojson:'application/geo+json'};
 if(window.claude&&typeof window.claude.use==='function'){window.claude.use('downloads').then(d=>{dl=d}).catch(()=>{})}
 
 const SAMPLE=`<?xml version="1.0" encoding="UTF-8"?>
@@ -148,7 +187,7 @@ const SAMPLE=`<?xml version="1.0" encoding="UTF-8"?>
 <Placemark><name>Boat GPS track</name><gx:Track><when>2026-10-03T08:00:00Z</when><when>2026-10-03T08:06:00Z</when><when>2026-10-03T08:12:00Z</when><when>2026-10-03T08:18:00Z</when><gx:coord>-117.2290 32.7100 0</gx:coord><gx:coord>-117.2100 32.7020 0</gx:coord><gx:coord>-117.1900 32.6900 0</gx:coord><gx:coord>-117.1720 32.6770 0</gx:coord></gx:Track></Placemark>
 </Document></kml>`;
 
-/* ---------- reading files ---------- */
+/* ================= reading files ================= */
 async function unzip(buf){
   const dv=new DataView(buf),u8=new Uint8Array(buf);let e=-1;
   for(let i=buf.byteLength-22;i>=Math.max(0,buf.byteLength-65557);i--){if(dv.getUint32(i,true)===0x06054b50){e=i;break}}
@@ -156,10 +195,10 @@ async function unzip(buf){
   const n=dv.getUint16(e+10,true);let p=dv.getUint32(e+16,true);const out=[];
   for(let k=0;k<n;k++){
     if(dv.getUint32(p,true)!==0x02014b50)break;
-    const method=dv.getUint16(p+10,true),size=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),off=dv.getUint32(p+42,true);
+    const method=dv.getUint16(p+10,true),size=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),offs=dv.getUint32(p+42,true);
     const name=new TextDecoder().decode(u8.subarray(p+46,p+46+nl));p+=46+nl+xl+cl;
     if(!/\.kml$/i.test(name))continue;
-    const start=off+30+dv.getUint16(off+26,true)+dv.getUint16(off+28,true),raw=u8.slice(start,start+size);
+    const start=offs+30+dv.getUint16(offs+26,true)+dv.getUint16(offs+28,true),raw=u8.slice(start,start+size);
     let text;
     if(method===0)text=new TextDecoder().decode(raw);
     else if(method===8)text=await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
@@ -170,38 +209,220 @@ async function unzip(buf){
   out.sort((a,b)=>(b.name.toLowerCase()==='doc.kml')-(a.name.toLowerCase()==='doc.kml'));
   return out;
 }
+function kindOf(name){
+  const x=(name.split('.').pop()||'').toLowerCase();
+  return {kml:'kml',kmz:'kmz',gpx:'gpx',geojson:'geojson',json:'geojson',csv:'csv',tsv:'csv',txt:'csv',zip:'shp',shp:'shp',dbf:'shp',shx:'shp',prj:'shp'}[x]||'';
+}
 async function load(list){
-  const got=[],bad=[];
+  const got=[],bad=[];let shp=false;
   for(const f of list){
+    const k=kindOf(f.name);
+    if(k==='shp'){shp=true;continue}
+    if(!k){bad.push(f.name+': not a supported file type');continue}
     try{
-      if(/\.kmz$/i.test(f.name)){const parts=await unzip(await f.arrayBuffer());parts.forEach(p=>got.push({name:parts.length>1?f.name+'/'+p.name:f.name,text:p.text}))}
-      else got.push({name:f.name,text:await f.text()});
+      if(k==='kmz'){const parts=await unzip(await f.arrayBuffer());parts.forEach(p=>got.push({name:parts.length>1?f.name+'/'+p.name:f.name,kind:'kml',text:p.text}))}
+      else got.push({name:f.name,kind:k,text:await f.text()});
     }catch(err){bad.push(f.name+': '+err.message)}
   }
-  if(got.length){files=got;ui.note.textContent='';const base=got[0].name.split('/')[0].replace(/\.km[lz]$/i,'');outName=(list.length===1?base:'kml-export')+'.csv';build()}
-  ui.status.innerHTML=bad.length?'<span class="err">Could not read '+bad.map(esc).join('; ')+'</span>':esc(got.length+' file'+(got.length===1?'':'s')+' read.');
+  const msg=[];
+  if(got.length){
+    files=got;ui.note.textContent='';
+    baseName=list.length===1?got[0].name.split('/')[0].replace(/\.[^.]+$/,''):'map-export';
+    ui.latcol.value='';ui.loncol.value='';
+    parseAll();build();
+    msg.push(esc(got.length+' file'+(got.length===1?'':'s')+' read.'));
+  }
+  if(shp)msg.push('<span class="err">Shapefiles are not supported yet. They are planned for the next update.</span>');
+  if(bad.length)msg.push('<span class="err">Could not read '+bad.map(esc).join('; ')+'</span>');
+  ui.status.innerHTML=msg.join(' ');
 }
 
-/* ---------- parsing ---------- */
-const kids=(el,n)=>[...el.children].filter(c=>c.localName===n);
+/* ================= parsing into one feature model =================
+   feature: {src, folder, name, desc, geoms:[{t:'Point'|'LineString'|'Track'|'Polygon', c:[[lon,lat,alt,time]], h:[holes]}], attrs:{}, time, begin, end, style, kind} */
+const kids=(el,n)=>el?[...el.children].filter(c=>c.localName===n):[];
 const kid=(el,n)=>kids(el,n)[0];
-const txt=(el,n)=>{const k=el&&kid(el,n);return k?k.textContent.trim():''};
+const txt=(el,n)=>{const k=kid(el,n);return k?k.textContent.trim():''};
 const all=(el,n)=>[...el.getElementsByTagNameNS('*',n)];
-function parseCoords(s){return (s||'').replace(/\s*,\s*/g,',').trim().split(/\s+/).filter(Boolean).map(t=>{const a=t.split(',').map(Number);return [a[0],a[1],a.length>2?a[2]:NaN,'']}).filter(a=>isFinite(a[0])&&isFinite(a[1]))}
-function geoms(el,out){
+const okc=a=>isFinite(a[0])&&isFinite(a[1]);
+function parseCoords(s){return (s||'').replace(/\s*,\s*/g,',').trim().split(/\s+/).filter(Boolean).map(t=>{const a=t.split(',').map(Number);return [a[0],a[1],a.length>2?a[2]:NaN,'']}).filter(okc)}
+function xmlDoc(text){const d=new DOMParser().parseFromString(text.replace(/^﻿/,''),'application/xml');return d.getElementsByTagName('parsererror').length?null:d}
+
+function kmlGeoms(el,out){
   for(const c of el.children){
-    const n=c.localName;
-    if(n==='Point'||n==='LineString'||n==='LinearRing'){const k=all(c,'coordinates')[0];out.push({t:n==='LinearRing'?'Polygon':n,c:parseCoords(k&&k.textContent)})}
-    else if(n==='Polygon'){const ob=kid(c,'outerBoundaryIs')||c;const k=all(ob,'coordinates')[0];out.push({t:'Polygon',c:parseCoords(k&&k.textContent)})}
-    else if(n==='MultiGeometry'||n==='MultiTrack')geoms(c,out);
-    else if(n==='Track'){const w=kids(c,'when').map(x=>x.textContent.trim());out.push({t:'Track',c:kids(c,'coord').map((x,i)=>{const a=x.textContent.trim().split(/\s+/).map(Number);return [a[0],a[1],a.length>2?a[2]:NaN,w[i]||'']}).filter(a=>isFinite(a[0])&&isFinite(a[1]))})}
-    else if(n==='Model'){const L=kid(c,'Location');if(L)out.push({t:'Point',c:[[+txt(L,'longitude'),+txt(L,'latitude'),+txt(L,'altitude')||NaN,'']]})}
+    const n=c.localName,coords=x=>{const k=x&&all(x,'coordinates')[0];return parseCoords(k&&k.textContent)};
+    if(n==='Point'||n==='LineString')out.push({t:n,c:coords(c)});
+    else if(n==='LinearRing')out.push({t:'Polygon',c:coords(c),h:[]});
+    else if(n==='Polygon')out.push({t:'Polygon',c:coords(kid(c,'outerBoundaryIs')||c),h:kids(c,'innerBoundaryIs').map(coords).filter(r=>r.length>2)});
+    else if(n==='MultiGeometry'||n==='MultiTrack')kmlGeoms(c,out);
+    else if(n==='Track'){const w=kids(c,'when').map(x=>x.textContent.trim());out.push({t:'Track',c:kids(c,'coord').map((x,i)=>{const a=x.textContent.trim().split(/\s+/).map(Number);return [a[0],a[1],a.length>2?a[2]:NaN,w[i]||'']}).filter(okc)})}
+    else if(n==='Model'){const L=kid(c,'Location');if(L)out.push({t:'Point',c:[[+txt(L,'longitude'),+txt(L,'latitude'),+txt(L,'altitude')||NaN,'']].filter(okc)})}
   }
 }
-const R=6371008.8,rad=Math.PI/180;
-function hav(a,b){const dl=(b[1]-a[1])*rad,dn=(b[0]-a[0])*rad,h=Math.sin(dl/2)**2+Math.cos(a[1]*rad)*Math.cos(b[1]*rad)*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
-function lineLen(c){let s=0;for(let i=1;i<c.length;i++)s+=hav(c[i-1],c[i]);return s}
-function area(c){let s=0;for(let i=0;i<c.length;i++){const a=c[i],b=c[(i+1)%c.length];s+=(b[0]-a[0])*rad*(2+Math.sin(a[1]*rad)+Math.sin(b[1]*rad))}return Math.abs(s*R*R/2)}
+function readKML(text,src,notes){
+  const doc=xmlDoc(text);if(!doc){notes.push(src+' is not valid KML and was skipped.');return []}
+  const out=[];
+  for(const pm of all(doc,'Placemark')){
+    const path=[];for(let p=pm.parentElement;p;p=p.parentElement)if(p.localName==='Folder'||p.localName==='Document'){const n=txt(p,'name');if(n)path.unshift(n)}
+    const g=[];kmlGeoms(pm,g);
+    const attrs={},ed=kid(pm,'ExtendedData');
+    if(ed){for(const d of all(ed,'Data'))attrs[d.getAttribute('name')||txt(d,'displayName')||'field']=txt(d,'value');for(const d of all(ed,'SimpleData'))attrs[d.getAttribute('name')||'field']=d.textContent.trim()}
+    const ts=kid(pm,'TimeStamp'),sp=kid(pm,'TimeSpan');
+    out.push({src,kind:'kml',folder:path.join(' / '),name:txt(pm,'name'),desc:txt(pm,'description'),geoms:g,attrs,time:txt(ts,'when'),begin:txt(sp,'begin'),end:txt(sp,'end'),style:txt(pm,'styleUrl')});
+  }
+  if(all(doc,'NetworkLink').length)notes.push(src+': network links are not followed.');
+  return out;
+}
+function readGPX(text,src,notes){
+  const doc=xmlDoc(text);if(!doc){notes.push(src+' is not valid GPX and was skipped.');return []}
+  const pt=el=>{const e=txt(el,'ele');return [+el.getAttribute('lon'),+el.getAttribute('lat'),e===''?NaN:+e,txt(el,'time')]};
+  const meta=el=>{const a={};for(const k of ['cmt','sym','type'])if(txt(el,k))a[k]=txt(el,k);return a};
+  const base=(el,folder,geoms)=>({src,kind:'gpx',folder,name:txt(el,'name'),desc:txt(el,'desc'),geoms,attrs:meta(el),time:'',begin:'',end:'',style:''});
+  const out=[];
+  for(const w of all(doc,'wpt')){const f=base(w,'Waypoints',[{t:'Point',c:[pt(w)].filter(okc)}]);f.time=txt(w,'time');out.push(f)}
+  for(const r of all(doc,'rte'))out.push(base(r,'Routes',[{t:'LineString',c:kids(r,'rtept').map(pt).filter(okc)}]));
+  for(const t of all(doc,'trk')){
+    const f=base(t,'Tracks',kids(t,'trkseg').map(s=>({t:'Track',c:kids(s,'trkpt').map(pt).filter(okc)})));
+    const times=f.geoms.flatMap(g=>g.c.map(c=>c[3])).filter(Boolean);
+    if(times.length){f.begin=times[0];f.end=times.at(-1)}
+    out.push(f);
+  }
+  return out;
+}
+const strv=v=>v==null?'':typeof v==='object'?JSON.stringify(v):String(v);
+function readGeoJSON(text,src,notes){
+  let j;try{j=JSON.parse(text.replace(/^﻿/,''))}catch(e){notes.push(src+' is not valid JSON and was skipped.');return []}
+  const crs=j&&j.crs&&j.crs.properties&&j.crs.properties.name;
+  if(crs&&!/CRS84|4326/.test(crs))notes.push(src+' says it uses '+crs+'. Coordinates were read as WGS84 longitude and latitude, so positions may be wrong.');
+  const list=j.type==='FeatureCollection'?j.features||[]:j.type==='Feature'?[j]:[{type:'Feature',geometry:j,properties:{}}];
+  const P=a=>[+a[0],+a[1],a.length>2?+a[2]:NaN,''];
+  const geo=(g,out)=>{
+    if(!g)return;
+    const t=g.type,c=g.coordinates;
+    if(t==='Point')out.push({t:'Point',c:[P(c)].filter(okc)});
+    else if(t==='MultiPoint')c.forEach(p=>out.push({t:'Point',c:[P(p)].filter(okc)}));
+    else if(t==='LineString')out.push({t:'LineString',c:c.map(P).filter(okc)});
+    else if(t==='MultiLineString')c.forEach(l=>out.push({t:'LineString',c:l.map(P).filter(okc)}));
+    else if(t==='Polygon')out.push({t:'Polygon',c:(c[0]||[]).map(P).filter(okc),h:c.slice(1).map(r=>r.map(P).filter(okc))});
+    else if(t==='MultiPolygon')c.forEach(pg=>out.push({t:'Polygon',c:(pg[0]||[]).map(P).filter(okc),h:pg.slice(1).map(r=>r.map(P).filter(okc))}));
+    else if(t==='GeometryCollection')(g.geometries||[]).forEach(x=>geo(x,out));
+  };
+  const out=[];let big=false;
+  for(const f of list){
+    const pr={...(f.properties||{})},g=[];geo(f.geometry,g);
+    if(g.some(x=>x.c.some(p=>Math.abs(p[0])>180||Math.abs(p[1])>90)))big=true;
+    const take=keys=>{for(const k of keys)if(k in pr){const v=strv(pr[k]);delete pr[k];return v}return ''};
+    const ct=pr.coordTimes;delete pr.coordTimes;
+    if(Array.isArray(ct)){let i=0;for(const x of g)if(x.t==='LineString'){const arr=Array.isArray(ct[i])?ct[i]:ct;if(arr.length===x.c.length){x.t='Track';x.c.forEach((p,k)=>p[3]=String(arr[k]))}i++}}
+    out.push({src,kind:'geojson',name:take(['name','Name','NAME','title']),desc:take(['description','Description','desc']),folder:take(['folder']),time:take(['time','timestamp','when']),begin:take(['time_begin','begin']),end:take(['time_end','end']),style:'',geoms:g,
+      attrs:Object.fromEntries(Object.entries(pr).filter(([k])=>!['source_file','style'].includes(k)).map(([k,v])=>[k,strv(v)]))});
+  }
+  if(big)notes.push(src+' has coordinates outside the latitude and longitude range, so it is probably in a projected system. Positions will be wrong until projected files are supported.');
+  return out;
+}
+
+function parseDelim(text){
+  text=text.replace(/^﻿/,'');
+  const nl=text.search(/\r?\n/),first=nl<0?text:text.slice(0,nl);let d=',',best=0;
+  for(const c of [',','\t',';']){const n=first.split(c).length;if(n>best){best=n;d=c}}
+  const out=[];let row=[],f='',q=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(q){if(ch==='"'){if(text[i+1]==='"'){f+='"';i++}else q=false}else f+=ch}
+    else if(ch==='"'&&f==='')q=true;
+    else if(ch===d){row.push(f);f=''}
+    else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&text[i+1]==='\n')i++;row.push(f);f='';out.push(row);row=[]}
+    else f+=ch;
+  }
+  if(f!==''||row.length){row.push(f);out.push(row)}
+  return out.filter(r=>r.some(v=>v.trim()!==''));
+}
+function deg(v){
+  v=String(v==null?'':v).trim();if(!v)return NaN;
+  if(/^[-+]?\d*\.?\d+(e[-+]?\d+)?$/i.test(v))return +v;
+  const hem=(v.match(/[NSEW]/i)||[''])[0].toUpperCase(),n=v.match(/\d+(\.\d+)?/g);
+  if(!n||n.length>3)return NaN;
+  let d=+n[0]+(n[1]?+n[1]/60:0)+(n[2]?+n[2]/3600:0);
+  if(/^\s*-/.test(v)||hem==='S'||hem==='W')d=-d;
+  return Math.round(d*1e7)/1e7;
+}
+function parseWKT(str){
+  const s=String(str).trim().replace(/^SRID=\d+;/i,'');let i=0;
+  const ws=()=>{while(i<s.length&&/\s/.test(s[i]))i++};
+  const word=()=>{ws();const m=/^[A-Za-z]+/.exec(s.slice(i));if(!m)return '';i+=m[0].length;return m[0].toUpperCase()};
+  const isNum=()=>{ws();return /[-+\d.]/.test(s[i]||'')};
+  const num=()=>{ws();const m=/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/.exec(s.slice(i));if(!m)throw 0;i+=m[0].length;return +m[0]};
+  const open=()=>{ws();if(s[i]!=='(')throw 0;i++},close=()=>{ws();if(s[i]!==')')throw 0;i++},more=()=>{ws();if(s[i]===','){i++;return true}return false};
+  const pt=()=>{const a=[num(),num()];if(isNum())a.push(num());if(isNum())num();return [a[0],a[1],a.length>2?a[2]:NaN,'']};
+  const list=f=>{open();const o=[f()];while(more())o.push(f());close();return o};
+  const ring=()=>list(pt);
+  const geom=out=>{
+    const t=word();ws();const m=/^(ZM|Z|M)(?![A-Za-z])/i.exec(s.slice(i));if(m)i+=m[0].length;ws();
+    if(/^EMPTY/i.test(s.slice(i))){i+=5;return}
+    if(t==='POINT'){open();out.push({t:'Point',c:[pt()]});close()}
+    else if(t==='LINESTRING')out.push({t:'LineString',c:ring()});
+    else if(t==='POLYGON'){const r=list(ring);out.push({t:'Polygon',c:r[0],h:r.slice(1)})}
+    else if(t==='MULTIPOINT'){open();do{ws();if(s[i]==='('){open();out.push({t:'Point',c:[pt()]});close()}else out.push({t:'Point',c:[pt()]})}while(more());close()}
+    else if(t==='MULTILINESTRING')list(ring).forEach(c=>out.push({t:'LineString',c}));
+    else if(t==='MULTIPOLYGON')list(()=>list(ring)).forEach(r=>out.push({t:'Polygon',c:r[0],h:r.slice(1)}));
+    else if(t==='GEOMETRYCOLLECTION'){open();do{geom(out)}while(more());close()}
+    else throw 0;
+  };
+  const out=[];try{geom(out)}catch(e){return null}return out;
+}
+const norm=h=>h.toLowerCase().replace(/[^a-z0-9]/g,'');
+const LATN=['lat','latitude','latdd','latdeg','latdecimal','decimallatitude','gpslat','gpslatitude','startlat','pointy','ycoord'],LONN=['lon','long','lng','longitude','londd','londeg','longdd','londecimal','decimallongitude','gpslon','gpslong','gpslongitude','startlon','startlong','pointx','xcoord'];
+function guessCols(H){
+  const n=H.map(norm),f=p=>n.findIndex(p);
+  let la=f(h=>LATN.includes(h));if(la<0)la=f(h=>h.startsWith('lat'));if(la<0)la=f(h=>h==='y');
+  let lo=f(h=>LONN.includes(h));if(lo<0)lo=f(h=>h.startsWith('lon')||h.startsWith('lng'));if(lo<0)lo=f(h=>h==='x');
+  return {la,lo};
+}
+const SKIPN=new Set(['geometry','vertices','lengthm','aream2','sourcefile','style','part','vertex']);
+function readCSV(text,src,notes){
+  const R=parseDelim(text);
+  if(R.length<2){notes.push(src+' has no data rows.');return []}
+  const H=R[0].map(h=>h.trim()),n=H.map(norm);
+  H.forEach(h=>{if(h&&!csvHeads.includes(h))csvHeads.push(h)});
+  let {la,lo}=guessCols(H);
+  if(ui.latcol.value&&H.includes(ui.latcol.value))la=H.indexOf(ui.latcol.value);
+  if(ui.loncol.value&&H.includes(ui.loncol.value))lo=H.indexOf(ui.loncol.value);
+  const wk=n.findIndex((h,i)=>['wkt','geometry','geom','shape','wktgeometry'].includes(h)&&R.slice(1,6).some(r=>/^\s*(SRID=\d+;\s*)?((MULTI)?(POINT|LINESTRING|POLYGON)|GEOMETRYCOLLECTION)\s*(ZM|Z|M)?\s*(\(|EMPTY)/i.test(r[i]||'')));
+  if((la<0||lo<0)&&wk<0){notes.push(src+': could not find latitude and longitude columns. Choose them under "CSV input: coordinate columns".');return []}
+  const pick=names=>n.findIndex(h=>names.includes(h));
+  const role={name:pick(['name','title','label','station','site','placemark']),desc:pick(['description','desc','notes','note','comments','comment']),folder:pick(['folder']),time:pick(['time','timestamp','datetime','when']),begin:pick(['timebegin','begin']),end:pick(['timeend','end']),alt:pick(['altitude','alt','elevation','ele'])};
+  const used=new Set([la,lo,wk,role.desc,role.folder,role.time,role.begin,role.end,role.alt].filter(i=>i>=0));
+  if(role.name>=0&&!['station','site'].includes(n[role.name]))used.add(role.name);
+  const out=[];let skipped=0;
+  for(const r of R.slice(1)){
+    let g=null;
+    if(wk>=0&&(r[wk]||'').trim())g=parseWKT(r[wk]);
+    if(!g&&la>=0&&lo>=0){const y=deg(r[la]),x=deg(r[lo]);if(isFinite(x)&&isFinite(y)&&Math.abs(y)<=90&&Math.abs(x)<=180)g=[{t:'Point',c:[[x,y,role.alt>=0&&(r[role.alt]||'').trim()!==''?+r[role.alt]:NaN,'']]}]}
+    if(!g){skipped++;continue}
+    const attrs={};H.forEach((h,i)=>{if(!used.has(i)&&!SKIPN.has(n[i])&&h)attrs[h]=(r[i]??'').trim()});
+    const v=i=>i>=0?(r[i]??'').trim():'';
+    out.push({src,kind:'csv',folder:v(role.folder),name:v(role.name),desc:v(role.desc),geoms:g,attrs,time:v(role.time),begin:v(role.begin),end:v(role.end),style:''});
+  }
+  if(skipped)notes.push(src+': '+skipped+' row'+(skipped===1?'':'s')+' had no usable coordinates and '+(skipped===1?'was':'were')+' skipped.');
+  return out;
+}
+function parseAll(){
+  feats=[];inNotes=[];csvHeads=[];
+  for(const f of files){
+    const r=f.kind==='kml'?readKML:f.kind==='gpx'?readGPX:f.kind==='geojson'?readGeoJSON:readCSV;
+    feats.push(...r(f.text,f.name,inNotes));
+  }
+  ui.csvin.hidden=!files.some(f=>f.kind==='csv');
+  for(const [sel,label] of [[ui.latcol,'Latitude: auto'],[ui.loncol,'Longitude: auto']]){
+    const v=sel.value;sel.innerHTML='<option value="">'+label+'</option>'+csvHeads.map(h=>'<option>'+esc(h)+'</option>').join('');sel.value=csvHeads.includes(v)?v:'';
+  }
+}
+
+/* ================= shared derived values ================= */
+const R0=6371008.8,rad=Math.PI/180;
+function hav(a,b){const dl=(b[1]-a[1])*rad,dn=(b[0]-a[0])*rad,h=Math.sin(dl/2)**2+Math.cos(a[1]*rad)*Math.cos(b[1]*rad)*Math.sin(dn/2)**2;return 2*R0*Math.asin(Math.sqrt(h))}
+const lineLen=c=>{let s=0;for(let i=1;i<c.length;i++)s+=hav(c[i-1],c[i]);return s};
+const ringArea=c=>{let s=0;for(let i=0;i<c.length;i++){const a=c[i],b=c[(i+1)%c.length];s+=(b[0]-a[0])*rad*(2+Math.sin(a[1]*rad)+Math.sin(b[1]*rad))}return Math.abs(s*R0*R0/2)};
+const closed=c=>c.length&&(c[0][0]!==c.at(-1)[0]||c[0][1]!==c.at(-1)[1])?[...c,c[0]]:c;
 function htmlText(s){
   const d=new DOMParser().parseFromString(s,'text/html');
   for(const tr of [...d.querySelectorAll('tr')]){const c=[...tr.children].filter(x=>/^T[DH]$/.test(x.tagName)).map(x=>x.textContent.replace(/\s+/g,' ').trim()).filter(Boolean);tr.replaceWith(d.createTextNode(' '+c.join(c.length===2?': ':' ')+'; '))}
@@ -222,77 +443,187 @@ const f6=x=>isFinite(x)?String(x):'';
 const r1=x=>x?String(Math.round(x*10)/10):'';
 function wktOf(g){
   const pt=c=>c[0]+' '+c[1],ln=c=>'('+c.map(pt).join(', ')+')';
-  const one=p=>p.t==='Point'?'POINT ('+pt(p.c[0])+')':p.t==='Polygon'?'POLYGON ('+ln(p.c)+')':'LINESTRING '+ln(p.c);
+  const one=p=>p.t==='Point'?'POINT ('+pt(p.c[0])+')':p.t==='Polygon'?'POLYGON ('+[closed(p.c),...(p.h||[]).map(closed)].map(ln).join(', ')+')':'LINESTRING '+ln(p.c);
   const ok=g.filter(p=>p.c.length);
   return ok.length===1?one(ok[0]):ok.length?'GEOMETRYCOLLECTION ('+ok.map(one).join(', ')+')':'';
 }
+const FIELDS=['source_file','folder','name','description','time','time_begin','time_end','style'];
+const DERIVED=['geometry','part','vertex','latitude','longitude','altitude','vertices','length_m','area_m2','wkt'];
 const BASE=['source_file','folder','name','description','geometry','part','vertex','latitude','longitude','altitude','vertices','length_m','area_m2','time','time_begin','time_end','style'];
+const typeLabel=f=>{const t=[...new Set(f.geoms.filter(g=>g.c.length).map(g=>g.t))];return f.geoms.filter(g=>g.c.length).length>1?'Multi ('+t.join(', ')+')':(t[0]||'none')};
 
-function build(){
-  const vmode=ui.mode.value==='vertex',cent=ui.pos.value==='centroid',strip=ui.strip.checked,tbl=ui.tbl.checked,wkt=ui.wkt.checked;
-  const extra=[];rows=[];feats=[];let errs=[];
-  for(const f of files){
-    const doc=new DOMParser().parseFromString(f.text.replace(/^﻿/,''),'application/xml');
-    if(doc.getElementsByTagName('parsererror').length){errs.push(f.name);continue}
-    for(const pm of all(doc,'Placemark')){
-      const path=[];for(let p=pm.parentElement;p;p=p.parentElement)if(p.localName==='Folder'||p.localName==='Document'){const n=txt(p,'name');if(n)path.unshift(n)}
-      const g=[];geoms(pm,g);
-      const flat=g.flatMap(p=>p.c);
-      const types=[...new Set(g.map(p=>p.t))];
-      const rawDesc=txt(pm,'description');
-      const ts=kid(pm,'TimeStamp'),sp=kid(pm,'TimeSpan');
-      const base={source_file:f.name,folder:path.join(' / '),name:txt(pm,'name'),description:strip&&/<[a-z!\/]/i.test(rawDesc)?htmlText(rawDesc):rawDesc,
-        geometry:g.length>1?'Multi ('+types.join(', ')+')':(types[0]||'none'),vertices:flat.length?String(flat.length):'',
-        length_m:r1(g.filter(p=>p.t!=='Point').reduce((s,p)=>s+lineLen(p.c),0)),area_m2:r1(g.filter(p=>p.t==='Polygon').reduce((s,p)=>s+area(p.c),0)),
-        time:txt(ts,'when'),time_begin:txt(sp,'begin'),time_end:txt(sp,'end'),style:txt(pm,'styleUrl')};
-      const attrs={};
-      const ed=kid(pm,'ExtendedData');
-      if(ed){for(const d of all(ed,'Data'))attrs[d.getAttribute('name')||txt(d,'displayName')||'field']=txt(d,'value');for(const d of all(ed,'SimpleData'))attrs[d.getAttribute('name')||'field']=d.textContent.trim()}
-      if(tbl)for(const [k,v] of Object.entries(descTable(rawDesc)))if(!(k in attrs))attrs[k]=v;
-      const keyed={};for(const [k,v] of Object.entries(attrs)){let key=BASE.includes(k)||k==='wkt'?'attr_'+k:k;keyed[key]=v;if(!extra.includes(key))extra.push(key)}
-      if(wkt)keyed.wkt=wktOf(g);
-      g.forEach(p=>feats.push({...p,name:base.name}));
-      if(vmode&&flat.length){
-        g.forEach((p,pi)=>p.c.forEach((c,vi)=>rows.push({...base,...keyed,part:String(pi+1),vertex:String(vi+1),latitude:f6(c[1]),longitude:f6(c[0]),altitude:f6(c[2]),time:c[3]||base.time})));
-      }else{
-        let c=flat[0]||[NaN,NaN,NaN];
-        if(cent&&flat.length>1&&!(types.length===1&&types[0]==='Point')){const pts=g.flatMap(p=>p.t==='Polygon'&&p.c.length>1&&p.c[0][0]===p.c.at(-1)[0]&&p.c[0][1]===p.c.at(-1)[1]?p.c.slice(0,-1):p.c);c=[pts.reduce((s,a)=>s+a[0],0)/pts.length,pts.reduce((s,a)=>s+a[1],0)/pts.length,NaN];c=c.map(v=>isFinite(v)?Math.round(v*1e7)/1e7:v)}
-        rows.push({...base,...keyed,latitude:f6(c[1]),longitude:f6(c[0]),altitude:flat.length===1?f6(c[2]):''});
-      }
+/* ================= writers ================= */
+const KTIME=/^\d{4}(-\d{2}(-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?)?)?$/;
+const GTIME=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/;
+const hasHTML=s=>/<[a-z!\/][^>]*>/i.test(s);
+function writeKML(fs,keep,akeys){
+  const notes=[];
+  if(fs.some(f=>f.style))notes.push('Original KML styles and icons are not carried over. Points, lines and polygons get standard colours.');
+  const root={sub:new Map(),items:[]};
+  for(const f of fs){let node=root;for(const p of keep('folder')&&f.folder?f.folder.split(' / '):[]){if(!node.sub.has(p))node.sub.set(p,{sub:new Map(),items:[]});node=node.sub.get(p)}node.items.push(f)}
+  const kc=c=>c.map(p=>p[0]+','+p[1]+(isFinite(p[2])?','+p[2]:'')).join(' ');
+  const kg=(g,multi)=>g.t==='Point'?'<Point><coordinates>'+kc(g.c.slice(0,1))+'</coordinates></Point>'
+    :g.t==='Polygon'?'<Polygon><outerBoundaryIs><LinearRing><coordinates>'+kc(closed(g.c))+'</coordinates></LinearRing></outerBoundaryIs>'+(g.h||[]).map(h=>'<innerBoundaryIs><LinearRing><coordinates>'+kc(closed(h))+'</coordinates></LinearRing></innerBoundaryIs>').join('')+'</Polygon>'
+    :g.t==='Track'&&!multi&&g.c.every(p=>p[3])?'<gx:Track>'+g.c.map(p=>'<when>'+xe(p[3])+'</when>').join('')+g.c.map(p=>'<gx:coord>'+p[0]+' '+p[1]+' '+(isFinite(p[2])?p[2]:0)+'</gx:coord>').join('')+'</gx:Track>'
+    :'<LineString><coordinates>'+kc(g.c)+'</coordinates></LineString>';
+  const pm=f=>{
+    const gs=f.geoms.filter(g=>g.c.length),data=[];
+    let s='<Placemark>';
+    if(keep('name')&&f.name)s+='<name>'+xe(f.name)+'</name>';
+    if(keep('description')&&f.d)s+=hasHTML(f.d)?'<description><![CDATA['+f.d.replace(/]]>/g,']]]]><![CDATA[>')+']]></description>':'<description>'+xe(f.d)+'</description>';
+    const t=keep('time')?f.time:'',b=keep('time_begin')?f.begin:'',e=keep('time_end')?f.end:'';
+    if(t&&KTIME.test(t))s+='<TimeStamp><when>'+xe(t)+'</when></TimeStamp>';else if(t)data.push(['time',t]);
+    if((b&&KTIME.test(b))||(e&&KTIME.test(e)))s+='<TimeSpan>'+(b&&KTIME.test(b)?'<begin>'+xe(b)+'</begin>':'')+(e&&KTIME.test(e)?'<end>'+xe(e)+'</end>':'')+'</TimeSpan>';
+    if(b&&!KTIME.test(b))data.push(['time_begin',b]);if(e&&!KTIME.test(e))data.push(['time_end',e]);
+    if(gs.length)s+='<styleUrl>#'+(gs[0].t==='Point'?'pt':gs[0].t==='Polygon'?'pg':'ln')+'</styleUrl>';
+    if(keep('source_file'))data.push(['source_file',f.src]);
+    for(const k of akeys)if(f.x[k]!==undefined&&f.x[k]!=='')data.push([k,f.x[k]]);
+    if(data.length)s+='<ExtendedData>'+data.map(([k,v])=>'<Data name="'+xe(k)+'"><value>'+xe(v)+'</value></Data>').join('')+'</ExtendedData>';
+    if(gs.length===1)s+=kg(gs[0],false);
+    else if(gs.length&&gs.every(g=>g.t==='Track'&&g.c.every(p=>p[3])))s+='<gx:MultiTrack>'+gs.map(g=>kg(g,false)).join('')+'</gx:MultiTrack>';
+    else if(gs.length)s+='<MultiGeometry>'+gs.map(g=>kg(g,true)).join('')+'</MultiGeometry>';
+    return s+'</Placemark>\n';
+  };
+  const folder=(name,node)=>'<Folder><name>'+xe(name)+'</name>\n'+node.items.map(pm).join('')+[...node.sub].map(([n,c])=>folder(n,c)).join('')+'</Folder>\n';
+  const styles='<Style id="pt"><IconStyle><color>ff05b7f2</color><scale>1.1</scale><Icon><href>https://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon></IconStyle></Style>\n<Style id="ln"><LineStyle><color>ff3d5aff</color><width>3</width></LineStyle></Style>\n<Style id="pg"><LineStyle><color>ffe8b857</color><width>2</width></LineStyle><PolyStyle><color>59e8b857</color></PolyStyle></Style>\n';
+  const text='<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">\n<Document><name>'+xe(baseName)+'</name>\n'+styles+root.items.map(pm).join('')+[...root.sub].map(([n,c])=>folder(n,c)).join('')+'</Document>\n</kml>\n';
+  return {text,notes};
+}
+function writeGPX(fs,keep,akeys){
+  const W=[],RT=[],T=[];let polys=0,holes=0,dates=0,none=0,withAttr=0;
+  const ele=p=>isFinite(p[2])?'<ele>'+p[2]+'</ele>':'',tm=v=>v&&GTIME.test(v)?'<time>'+xe(v)+'</time>':'';
+  for(const f of fs){
+    const cmt=[];
+    for(const k of akeys)if(k!=='sym'&&k!=='cmt'&&k!=='type'&&f.x[k])cmt.push(k+': '+f.x[k]);
+    if(keep('cmt')&&f.x.cmt)cmt.unshift(f.x.cmt);
+    const t=keep('time')?f.time:'';
+    if(t&&!GTIME.test(t)){cmt.unshift('time: '+t);dates++}
+    if(cmt.length>(f.x.cmt&&keep('cmt')?1:0))withAttr++;
+    const name=keep('name')&&f.name?'<name>'+xe(f.name)+'</name>':'',c=cmt.length?'<cmt>'+xe(cmt.join('; '))+'</cmt>':'';
+    const d=keep('description')&&f.d?'<desc>'+xe(hasHTML(f.d)?htmlText(f.d):f.d)+'</desc>':'';
+    const sym=keep('sym')&&f.x.sym?'<sym>'+xe(f.x.sym)+'</sym>':'';
+    const fl=keep('folder')&&f.folder&&!(f.kind==='gpx'&&/^(Waypoints|Routes|Tracks)$/.test(f.folder))?f.folder.split(' / ').at(-1):'';
+    const type=keep('type')&&f.x.type?f.x.type:fl;
+    const ty=type?'<type>'+xe(type)+'</type>':'';
+    const gs=f.geoms.filter(g=>g.c.length);if(!gs.length)none++;
+    const segs=[];
+    for(const g of gs){
+      if(g.t==='Point'){const p=g.c[0];W.push('<wpt lat="'+p[1]+'" lon="'+p[0]+'">'+ele(p)+tm(t||p[3])+name+c+d+sym+ty+'</wpt>')}
+      else if(g.t==='Polygon'){polys++;if(g.h&&g.h.length)holes++;segs.push(closed(g.c),...(g.h||[]).map(closed))}
+      else segs.push(g.c);
     }
+    const pt=(p,tag)=>'<'+tag+' lat="'+p[1]+'" lon="'+p[0]+'">'+ele(p)+tm(p[3])+'</'+tag+'>';
+    if(segs.length===1&&f.kind==='gpx'&&f.folder==='Routes')RT.push('<rte>'+name+c+d+ty+segs[0].map(p=>pt(p,'rtept')).join('')+'</rte>');
+    else if(segs.length)T.push('<trk>'+name+c+d+ty+segs.map(s=>'<trkseg>'+s.map(p=>pt(p,'trkpt')).join('')+'</trkseg>').join('')+'</trk>');
   }
-  cols=[...BASE.filter(k=>vmode||(k!=='part'&&k!=='vertex')),...extra,...(wkt?['wkt']:[])];
-  if(ui.drop0.checked)cols=cols.filter(k=>rows.some(r=>r[k]!==undefined&&r[k]!==''));
-  const count=t=>feats.filter(p=>p.t===t).length;
-  const pms=vmode?new Set(rows.map(r=>r.source_file+'|'+r.folder+'|'+r.name)).size:rows.length;
-  const bits=[['Point','point'],['LineString','line'],['Track','track'],['Polygon','polygon']].map(([t,w])=>{const n=count(t);return n?n+' '+w+(n===1?'':'s'):''}).filter(Boolean);
-  sumTail=(bits.length?' &middot; '+esc(bits.join(', ')):'')+(vmode?' &middot; from '+pms+' placemarks':'');
-  if(errs.length)ui.status.innerHTML='<span class="err">Not valid KML: '+errs.map(esc).join(', ')+'</span>';
+  const notes=[];
+  if(polys)notes.push((polys===1?'1 polygon was written as a closed track':polys+' polygons were written as closed tracks')+', since GPX has no polygons.'+(holes?' Holes became extra track segments.':''));
+  if(withAttr)notes.push('Attribute fields were written to each item\'s comment (cmt), since GPX has no attribute table.');
+  if(dates)notes.push(dates+' time value'+(dates===1?' was':'s were')+' not a full date and time, so '+(dates===1?'it was':'they were')+' kept in the comment instead.');
+  if(none)notes.push(none+' feature'+(none===1?' has':'s have')+' no coordinates and '+(none===1?'was':'were')+' left out.');
+  const text='<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="VRG Map file converter" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">\n<metadata><name>'+xe(baseName)+'</name><time>'+new Date().toISOString().replace(/\.\d+Z$/,'Z')+'</time></metadata>\n'+W.concat(RT,T).join('\n')+'\n</gpx>\n';
+  return {text,notes};
+}
+const numish=v=>/^-?(0|[1-9]\d*)(\.\d+)?$/.test(v)&&v.length<16;
+function writeGeoJSON(fs,keep,akeys){
+  const P=p=>isFinite(p[2])?[p[0],p[1],p[2]]:[p[0],p[1]];
+  const one=g=>g.t==='Point'?{type:'Point',coordinates:P(g.c[0])}:g.t==='Polygon'?{type:'Polygon',coordinates:[closed(g.c),...(g.h||[]).map(closed)].map(r=>r.map(P))}:{type:'LineString',coordinates:g.c.map(P)};
+  const multi={Point:'MultiPoint',LineString:'MultiLineString',Polygon:'MultiPolygon'};
+  const out=fs.map(f=>{
+    const gs=f.geoms.filter(g=>g.c.length),pr={};
+    if(keep('name')&&f.name)pr.name=f.name;
+    if(keep('description')&&f.d)pr.description=f.d;
+    if(keep('folder')&&f.folder)pr.folder=f.folder;
+    if(keep('source_file'))pr.source_file=f.src;
+    if(keep('time')&&f.time)pr.time=f.time;
+    if(keep('time_begin')&&f.begin)pr.time_begin=f.begin;
+    if(keep('time_end')&&f.end)pr.time_end=f.end;
+    for(const k of akeys)if(f.x[k]!==undefined)pr[k]=numish(f.x[k])?+f.x[k]:f.x[k]==='true'?true:f.x[k]==='false'?false:f.x[k];
+    let geometry=null;
+    if(gs.length===1)geometry=one(gs[0]);
+    else if(gs.length){const ts=[...new Set(gs.map(g=>g.t==='Track'?'LineString':g.t))];
+      if(ts.length===1){const o=gs.map(one);geometry={type:multi[ts[0]],coordinates:o.map(x=>x.coordinates)}}
+      else geometry={type:'GeometryCollection',geometries:gs.map(one)}}
+    const tr=gs.filter(g=>g.t==='Track');
+    if(tr.length&&tr.every(g=>g.c.every(p=>p[3])))pr.coordTimes=tr.length===1&&gs.length===1?tr[0].c.map(p=>p[3]):tr.map(g=>g.c.map(p=>p[3]));
+    return JSON.stringify({type:'Feature',properties:pr,geometry});
+  });
+  return {text:'{"type":"FeatureCollection","features":[\n'+out.join(',\n')+'\n]}\n',notes:[]};
+}
+
+/* ================= build: features -> columns, rows, output ================= */
+function build(){
+  const strip=ui.strip.checked,tbl=ui.tbl.checked;
+  attrKeys=[];
+  for(const f of feats){
+    f.d=strip&&hasHTML(f.desc)?htmlText(f.desc):f.desc;
+    const a={...f.attrs};
+    if(tbl)for(const [k,v] of Object.entries(descTable(f.desc)))if(!(k in a))a[k]=v;
+    f.x={};
+    for(const [k,v] of Object.entries(a)){const key=FIELDS.includes(k)||DERIVED.includes(k)?'attr_'+k:k;f.x[key]=v;if(!attrKeys.includes(key))attrKeys.push(key)}
+  }
+  const n=t=>feats.filter(f=>f.geoms.some(g=>g.t===t&&g.c.length)).length;
+  const bits=[['Point','point'],['LineString','line'],['Track','track'],['Polygon','polygon']].map(([t,w])=>{const k=n(t);return k?k+' '+w+(k===1?'':'s'):''}).filter(Boolean);
+  sumIn='<b>'+feats.length.toLocaleString()+'</b> feature'+(feats.length===1?'':'s')+(bits.length?' ('+esc(bits.join(', '))+')':'');
   render();
   draw();
 }
-
-/* ---------- column choice, CSV and preview ---------- */
+function makeRows(vmode){
+  const cent=ui.pos.value==='centroid',wkt=ui.wkt.checked&&fmt==='csv',out=[];
+  for(const f of feats){
+    const g=f.geoms.filter(p=>p.c.length),flat=g.flatMap(p=>p.c),types=[...new Set(g.map(p=>p.t))];
+    const base={source_file:f.src,folder:f.folder,name:f.name,description:f.d,geometry:typeLabel(f),vertices:flat.length?String(flat.length):'',
+      length_m:r1(g.filter(p=>p.t!=='Point').reduce((s,p)=>s+lineLen(p.t==='Polygon'?closed(p.c):p.c),0)),
+      area_m2:r1(g.filter(p=>p.t==='Polygon').reduce((s,p)=>s+Math.max(0,ringArea(p.c)-(p.h||[]).reduce((a,h)=>a+ringArea(h),0)),0)),
+      time:f.time,time_begin:f.begin,time_end:f.end,style:f.style,...f.x};
+    if(wkt)base.wkt=wktOf(g);
+    if(vmode&&flat.length){g.forEach((p,pi)=>p.c.forEach((c,vi)=>out.push({...base,part:String(pi+1),vertex:String(vi+1),latitude:f6(c[1]),longitude:f6(c[0]),altitude:f6(c[2]),time:c[3]||base.time})));continue}
+    let c=flat[0]||[NaN,NaN,NaN];
+    if(cent&&flat.length>1&&!(types.length===1&&types[0]==='Point')){
+      const pts=g.flatMap(p=>p.t==='Polygon'?(closed(p.c)===p.c?p.c.slice(0,-1):p.c):p.c);
+      c=[pts.reduce((s,a)=>s+a[0],0)/pts.length,pts.reduce((s,a)=>s+a[1],0)/pts.length,NaN].map(v=>isFinite(v)?Math.round(v*1e7)/1e7:v);
+    }
+    out.push({...base,latitude:f6(c[1]),longitude:f6(c[0]),altitude:flat.length===1?f6(c[2]):''});
+  }
+  return out;
+}
 function render(){
-  const out=cols.filter(k=>!off.has(k)),nOff=cols.length-out.length;
-  const q=v=>{v=v==null?'':String(v);return /[",\r\n]/.test(v)||/^\s|\s$/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
-  csv=out.length?[out.map(q).join(','),...rows.map(r=>out.map(k=>q(r[k])).join(','))].join('\r\n')+'\r\n':'';
-  ui.sum.innerHTML='<b>'+rows.length.toLocaleString()+'</b> rows, <b>'+out.length+'</b> '+(nOff?'of '+cols.length+' columns exported':'columns')+sumTail;
-  ui.colnote.textContent=nOff?nOff+' column'+(nOff===1?'':'s')+' left out. Tick a heading to put it back.':'Untick a column heading to leave that column out of the CSV.';
+  const csv=fmt==='csv',vmode=csv&&ui.mode.value==='vertex';
+  rows=makeRows(vmode);
+  cols=[...BASE.filter(k=>csv?(vmode||(k!=='part'&&k!=='vertex')):!DERIVED.includes(k)||k==='geometry'),...attrKeys,...(csv&&ui.wkt.checked?['wkt']:[])];
+  if(!csv)cols=cols.filter(k=>k!=='style');
+  if(ui.drop0.checked)cols=cols.filter(k=>k==='geometry'||rows.some(r=>r[k]!==undefined&&r[k]!==''));
+  const locked=k=>!csv&&k==='geometry';
+  const keepSet=new Set(cols.filter(k=>!off.has(k)||locked(k))),keep=k=>keepSet.has(k);
+  const akeys=attrKeys.filter(keep);
+  outNotes=[];
+  if(csv){
+    const out=cols.filter(keep),q=v=>{v=v==null?'':String(v);return /[",\r\n]/.test(v)||/^\s|\s$/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+    outText=out.length?[out.map(q).join(','),...rows.map(r=>out.map(k=>q(r[k])).join(','))].join('\r\n')+'\r\n':'';
+  }else{
+    const r=(fmt==='kml'?writeKML:fmt==='gpx'?writeGPX:writeGeoJSON)(feats,keep,akeys);
+    outText=feats.length?r.text:'';outNotes=r.notes;
+  }
+  const nOut=cols.filter(k=>keep(k)&&!locked(k)).length,nAll=cols.filter(k=>!locked(k)).length,nOff=nAll-nOut;
+  ui.sum.innerHTML=sumIn+' &rarr; '+(csv?'<b>'+rows.length.toLocaleString()+'</b> rows, ':'')+'<b>'+nOut+'</b> '+(nOff?'of '+nAll+' ':'')+(csv?'columns':'fields')+' in '+fmt.toUpperCase();
+  const notes=inNotes.concat(outNotes);
+  ui.notes.hidden=!notes.length;ui.notes.innerHTML=notes.map(t=>'<li>'+esc(t)+'</li>').join('');
+  ui.colnote.textContent=nOff?nOff+' column'+(nOff===1?'':'s')+' left out. Tick a heading to put it back.':'Untick a column heading to leave it out of the export.';
   ui.allcols.hidden=!nOff;
   const show=rows.slice(0,200),num=new Set(['latitude','longitude','altitude','vertices','length_m','area_m2','part','vertex']);
-  const cls=k=>{const c=[];if(num.has(k))c.push('n');if(off.has(k))c.push('off');return c.length?' class="'+c.join(' ')+'"':''};
+  const cls=k=>{const c=[];if(num.has(k))c.push('n');if(!keep(k))c.push('off');return c.length?' class="'+c.join(' ')+'"':''};
   const sl=ui.tablewrap.scrollLeft,st=ui.tablewrap.scrollTop;
-  ui.tablewrap.innerHTML=rows.length?'<table><thead><tr>'+cols.map(k=>'<th'+(off.has(k)?' class="off"':'')+'><label><input type="checkbox" data-k="'+esc(k)+'"'+(off.has(k)?'':' checked')+'><span>'+esc(k)+'</span></label></th>').join('')+'</tr></thead><tbody>'+show.map(r=>'<tr>'+cols.map(k=>'<td'+cls(k)+' title="'+esc(r[k]??'')+'">'+esc(r[k]??'')+'</td>').join('')+'</tr>').join('')+'</tbody></table>':'<p class="note" style="padding:12px;margin:0">No placemarks found.</p>';
+  ui.tablewrap.innerHTML=rows.length?'<table><thead><tr>'+cols.map(k=>'<th'+(keep(k)?'':' class="off"')+'><label><input type="checkbox" data-k="'+esc(k)+'"'+(keep(k)?' checked':'')+(locked(k)?' disabled title="Geometry is always exported"':'')+'><span>'+esc(k)+'</span></label></th>').join('')+'</tr></thead><tbody>'+show.map(r=>'<tr>'+cols.map(k=>'<td'+cls(k)+' title="'+esc(r[k]??'')+'">'+esc(r[k]??'')+'</td>').join('')+'</tr>').join('')+'</tbody></table>':'<p class="note" style="padding:12px;margin:0">No features found.</p>';
   ui.tablewrap.scrollLeft=sl;ui.tablewrap.scrollTop=st;
-  ui.more.textContent=rows.length>200?'Preview shows the first 200 rows. The CSV has all '+rows.length.toLocaleString()+'.':'';
-  ui.save.disabled=ui.copy.disabled=!rows.length||!out.length;
-  if(rows.length&&!out.length)ui.status.textContent='Every column is unticked, so there is nothing to export.';
+  ui.more.textContent=rows.length>200?'Preview shows the first 200 rows of '+rows.length.toLocaleString()+'.':'';
+  ui.save.textContent='Download .'+EXT[fmt];ui.copy.textContent='Copy '+fmt.toUpperCase();
+  ui.save.disabled=ui.copy.disabled=!outText;
+  ui.csvopts.hidden=!csv;
 }
 
-/* ---------- plot ---------- */
-/* ---------- basemap (Leaflet) with plain-plot fallback ---------- */
+/* ================= map: Leaflet basemap with plain-plot fallback ================= */
 let map=null,fg=null,lfail=false;
+const mapFeats=()=>feats.flatMap(f=>f.geoms.filter(g=>g.c.length).map(g=>({...g,name:f.name})));
 function leafletOK(){
   if(lfail||!window.L)return false;
   const t=document.createElement('div');t.className='leaflet-container';t.style.display='none';document.body.append(t);
@@ -309,11 +640,10 @@ function initMap(){
   };
   const labels=esri('Reference/World_Boundaries_and_Places',{maxNativeZoom:19});
   map=L.map(ui.lmap,{preferCanvas:true});
-  let pick='Satellite';try{pick=localStorage.getItem('kml2csv-base')||pick}catch(e){}
-  if(!bases[pick])pick='Satellite';
+  let pick=store.get('base','Satellite');if(!bases[pick])pick='Satellite';
   bases[pick].addTo(map);
   L.control.layers(bases,{'Place labels':labels},{position:'topright'}).addTo(map);
-  map.on('baselayerchange',e=>{try{localStorage.setItem('kml2csv-base',e.name)}catch(x){}});
+  map.on('baselayerchange',e=>store.set('base',e.name));
   fg=L.featureGroup().addTo(map);
   let loads=0,errs=0;
   const watch=l=>{l.on('tileload',()=>{loads++});l.on('tileerror',()=>{errs++;if(!loads&&errs>=4)failMap()})};
@@ -321,12 +651,11 @@ function initMap(){
 }
 function drawMap(){
   fg.clearLayers();
-  const ll=c=>[c[1],c[0]],nPts=feats.filter(p=>p.t==='Point').length;
-  for(const p of feats){
-    if(!p.c.length)continue;
+  const ms=mapFeats(),ll=c=>[c[1],c[0]],nPts=ms.filter(p=>p.t==='Point').length;
+  for(const p of ms){
     let lay;
     if(p.t==='Point')lay=L.circleMarker(ll(p.c[0]),{radius:nPts>2000?3:6,color:'#3d2d00',weight:1.5,fillColor:'#f2b705',fillOpacity:1});
-    else if(p.t==='Polygon')lay=L.polygon(p.c.map(ll),{color:'#57b8e8',weight:2.5,fillOpacity:.25});
+    else if(p.t==='Polygon')lay=L.polygon([p.c.map(ll),...(p.h||[]).map(h=>h.map(ll))],{color:'#57b8e8',weight:2.5,fillOpacity:.25});
     else lay=L.polyline(p.c.map(ll),{color:'#ff5a3d',weight:3.5});
     if(p.name)lay.bindTooltip(esc(p.name));
     fg.addLayer(lay);
@@ -336,16 +665,11 @@ function drawMap(){
   if(has)map.fitBounds(fg.getBounds(),{padding:[32,32],maxZoom:17});else map.setView([20,0],1);
 }
 function draw(){
-  if(leafletOK()){
-    if(!map)initMap();
-    ui.lmap.hidden=false;ui.svg.innerHTML='';
-    drawMap();return;
-  }
-  ui.lmap.hidden=true;
-  plot();
+  if(leafletOK()){if(!map)initMap();ui.lmap.hidden=false;ui.svg.innerHTML='';drawMap();return}
+  ui.lmap.hidden=true;plot();
 }
 function plot(){
-  const s=ui.svg,W=s.clientWidth,H=s.clientHeight,pts=feats.flatMap(p=>p.c);
+  const s=ui.svg,W=s.clientWidth,H=s.clientHeight,ms=mapFeats(),pts=ms.flatMap(p=>p.c);
   ui.empty.hidden=!!pts.length;
   if(!pts.length||!W){s.innerHTML='';return}
   let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;for(const c of pts){x0=Math.min(x0,c[0]);x1=Math.max(x1,c[0]);y0=Math.min(y0,c[1]);y1=Math.max(y1,c[1])}
@@ -354,34 +678,39 @@ function plot(){
   const X=c=>(ox+(c[0]-x0)*k*sc).toFixed(1),Y=c=>(oy+(y1-c[1])*sc).toFixed(1),P=c=>c.map(v=>X(v)+','+Y(v)).join(' ');
   const g=[];
   for(let i=0;i<6;i++){const gx=(W/6)*i,gy=(H/6)*i;g.push('<line x1="'+gx+'" y1="0" x2="'+gx+'" y2="'+H+'" stroke="var(--line)" stroke-width=".6"/><line x1="0" y1="'+gy+'" x2="'+W+'" y2="'+gy+'" stroke="var(--line)" stroke-width=".6"/>')}
-  feats.filter(p=>p.t==='Polygon'&&p.c.length>2).forEach(p=>g.push('<polygon points="'+P(p.c)+'" fill="#57b8e8" fill-opacity=".28" stroke="#57b8e8" stroke-width="1.5"/>'));
-  feats.filter(p=>(p.t==='LineString'||p.t==='Track')&&p.c.length>1).forEach(p=>g.push('<polyline points="'+P(p.c)+'" fill="none" stroke="#ff5a3d" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>'));
-  const dots=feats.filter(p=>p.t==='Point'&&p.c.length);const r=dots.length>2000?1.6:dots.length>300?3:5;
+  ms.filter(p=>p.t==='Polygon'&&p.c.length>2).forEach(p=>g.push('<polygon points="'+P(p.c)+'" fill="#57b8e8" fill-opacity=".28" stroke="#57b8e8" stroke-width="1.5"/>'));
+  ms.filter(p=>(p.t==='LineString'||p.t==='Track')&&p.c.length>1).forEach(p=>g.push('<polyline points="'+P(p.c)+'" fill="none" stroke="#ff5a3d" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>'));
+  const dots=ms.filter(p=>p.t==='Point');const r=dots.length>2000?1.6:dots.length>300?3:5;
   dots.forEach(p=>g.push('<circle cx="'+X(p.c[0])+'" cy="'+Y(p.c[0])+'" r="'+r+'" fill="#f2b705" stroke="#5b4300" stroke-width="'+(r>3?1:.4)+'"/>'));
   s.setAttribute('viewBox','0 0 '+W+' '+H);s.innerHTML=g.join('');
 }
 const ro=new ResizeObserver(()=>{if(map)map.invalidateSize();else plot()});ro.observe(ui.svg);
 
-/* ---------- events ---------- */
+/* ================= events ================= */
 ui.drop.addEventListener('click',()=>ui.pick.click());
 ui.drop.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();ui.pick.click()}});
 ui.pick.addEventListener('change',()=>{if(ui.pick.files.length)load([...ui.pick.files]);ui.pick.value=''});
 ['dragenter','dragover'].forEach(t=>ui.drop.addEventListener(t,e=>{e.preventDefault();ui.drop.classList.add('over')}));
 ['dragleave','drop'].forEach(t=>ui.drop.addEventListener(t,e=>{e.preventDefault();ui.drop.classList.remove('over')}));
-ui.drop.addEventListener('drop',e=>{const l=[...e.dataTransfer.files].filter(f=>/\.km[lz]$/i.test(f.name));if(l.length)load(l);else ui.status.innerHTML='<span class="err">Those are not .kml or .kmz files.</span>'});
+ui.drop.addEventListener('drop',e=>{if(e.dataTransfer.files.length)load([...e.dataTransfer.files])});
 document.addEventListener('dragover',e=>e.preventDefault());document.addEventListener('drop',e=>e.preventDefault());
-[ui.mode,ui.pos,ui.strip,ui.tbl,ui.wkt,ui.drop0].forEach(el=>el.addEventListener('change',build));
-ui.tablewrap.addEventListener('change',e=>{const k=e.target.dataset&&e.target.dataset.k;if(k==null)return;if(e.target.checked)off.delete(k);else off.add(k);keepOff();render()});
-ui.allcols.addEventListener('click',()=>{cols.forEach(k=>off.delete(k));keepOff();render()});
-const payload=()=>(ui.bom.checked?'﻿':'')+csv;
+ui.fmt.addEventListener('change',e=>{fmt=e.target.value;store.set('format',fmt);render()});
+[ui.strip,ui.tbl].forEach(el=>el.addEventListener('change',build));
+[ui.mode,ui.pos,ui.wkt,ui.drop0,ui.bom].forEach(el=>el.addEventListener('change',render));
+[ui.latcol,ui.loncol].forEach(el=>el.addEventListener('change',()=>{parseAll();build()}));
+ui.tablewrap.addEventListener('change',e=>{const k=e.target.dataset&&e.target.dataset.k;if(k==null)return;if(e.target.checked)off.delete(k);else off.add(k);store.set('off',[...off]);render()});
+ui.allcols.addEventListener('click',()=>{cols.forEach(k=>off.delete(k));store.set('off',[...off]);render()});
+const payload=()=>(fmt==='csv'&&ui.bom.checked?'﻿':'')+outText;
 ui.save.addEventListener('click',async()=>{
-  if(dl){try{await dl.save({filename:outName,data:payload()});ui.status.textContent='Saved '+outName+'.'}catch(e){ui.status.textContent=e&&e.code==='declined'?'Download cancelled.':'Download is not available here. Copy CSV still works.'}return}
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([payload()],{type:'text/csv;charset=utf-8'}));a.download=outName;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
-  ui.status.textContent='Downloading '+outName+'. If nothing appears, use Copy CSV.';
+  const name=baseName+'.'+EXT[fmt];
+  if(dl&&fmt==='csv'){try{await dl.save({filename:name,data:payload()});ui.status.textContent='Saved '+name+'.'}catch(e){ui.status.textContent=e&&e.code==='declined'?'Download cancelled.':'Download is not available here. Copy still works.'}return}
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([payload()],{type:MIME[fmt]+';charset=utf-8'}));a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  ui.status.textContent='Downloading '+name+'.';
 });
-ui.copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(csv);ui.status.textContent='CSV copied. Paste it into a spreadsheet or a text file.'}catch(e){ui.status.textContent='Copy was blocked by the browser.'}});
+ui.copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(outText);ui.status.textContent=fmt.toUpperCase()+' copied to the clipboard.'}catch(e){ui.status.textContent='Copy was blocked by the browser.'}});
 
-files=[{name:'sample-seine-stations.kml',text:SAMPLE}];outName='sample-seine-stations.csv';build();
+const r0=ui.fmt.querySelector('input[value="'+fmt+'"]');if(r0)r0.checked=true;else fmt='csv';
+files=[{name:'sample-seine-stations.kml',kind:'kml',text:SAMPLE}];parseAll();build();
 }
 </script>
 </body>
