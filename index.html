@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 /* VOICE: a field-lab utility, calm and exact, for people who just want their map data in another format.
@@ -46,6 +47,8 @@ h2{font:600 22px/1.2 "IBM Plex Sans Condensed",sans-serif;margin:0 0 12px}
 .opts[hidden]{display:none}
 .opts label{display:flex;gap:10px;align-items:center;font-size:15px}
 .opts input[type=checkbox]{width:20px;height:20px;accent-color:var(--sea);flex:none}
+.opts input[type=text]{font:inherit;font-size:16px;min-height:44px;padding:0 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
+.opts input[hidden]{display:none}
 .opts select{font:inherit;font-size:16px;min-height:44px;padding:0 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
 .opts .row{display:grid;gap:4px}
 .opts .row>span{font-size:14px;color:var(--mute)}
@@ -81,14 +84,14 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 .tips .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:8px 40px}
 .tips ul{margin:0;padding-left:1.2em}.tips li{margin-bottom:8px}
 code{overflow-wrap:anywhere;font-size:14px}
-@media(max-width:600px){.plot{min-height:320px}th,td{max-width:20ch}.pair{grid-template-columns:1fr}}
+@media(max-width:600px){.fmt span{font-size:14px}.plot{min-height:320px}th,td{max-width:20ch}.pair{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){.drop{transition:none}}
 </style>
 </head>
 <body>
 <header class="band"><div class="wrap">
 <h1>Map file converter</h1>
-<p>Convert between KML, KMZ, GPX, GeoJSON and CSV. Drop files, pick an output, check the map and table, then download. Files are read in your browser and never uploaded.</p>
+<p>Convert between KML, KMZ, GPX, GeoJSON, CSV and shapefiles. Drop files, pick an output, check the map and table, then download. Files are read in your browser and never uploaded.</p>
 </div></header>
 
 <main class="band"><div class="wrap">
@@ -96,9 +99,9 @@ code{overflow-wrap:anywhere;font-size:14px}
 <section>
 <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose map files">
 <strong>Drop map files</strong>
-<span>.kml .kmz .gpx .geojson .csv, or click to choose. Several files are combined.</span>
+<span>.kml .kmz .gpx .geojson .csv or zipped shapefiles, or click to choose. Several files are combined.</span>
 </div>
-<input type="file" id="pick" accept=".kml,.kmz,.gpx,.geojson,.json,.csv,.tsv,.txt,.zip,.shp" multiple hidden>
+<input type="file" id="pick" accept=".kml,.kmz,.gpx,.geojson,.json,.csv,.tsv,.txt,.zip,.shp,.dbf,.shx,.prj,.cpg" multiple hidden>
 <div class="status" id="status"></div>
 
 <fieldset class="fmt" id="fmt"><legend>Convert to</legend>
@@ -106,6 +109,7 @@ code{overflow-wrap:anywhere;font-size:14px}
 <label><input type="radio" name="fmt" value="kml"><span>KML</span></label>
 <label><input type="radio" name="fmt" value="gpx"><span>GPX</span></label>
 <label><input type="radio" name="fmt" value="geojson"><span>GeoJSON</span></label>
+<label><input type="radio" name="fmt" value="shp"><span>SHP</span></label>
 </fieldset>
 
 <div class="opts" id="csvopts">
@@ -116,10 +120,18 @@ code{overflow-wrap:anywhere;font-size:14px}
 <label><input type="checkbox" id="wkt">Add a WKT geometry column (for QGIS or ArcGIS)</label>
 <label><input type="checkbox" id="bom" checked>Excel-friendly encoding (keeps accents and symbols)</label>
 </div>
+<div class="opts" id="shpopts" hidden>
+<div class="row"><span>Shapefile coordinate system</span><select id="outcrs"></select></div>
+</div>
 <div class="opts">
 <label><input type="checkbox" id="strip" checked>Plain-text descriptions (remove HTML)</label>
 <label><input type="checkbox" id="tbl" checked>Turn attribute tables in descriptions into columns</label>
 <label><input type="checkbox" id="drop0" checked>Leave out columns that are empty in every row</label>
+</div>
+<div class="opts csvin" id="srcblk" hidden>
+<div class="row"><span>Source coordinate system</span><select id="srccrs"></select></div>
+<input type="text" id="srccustom" hidden placeholder="proj4 string or WKT" aria-label="Custom coordinate system">
+<p class="note" id="srcnote" style="margin:0"></p>
 </div>
 <div class="opts csvin" id="csvin" hidden>
 <div class="row"><span>CSV input: coordinate columns</span>
@@ -145,7 +157,7 @@ code{overflow-wrap:anywhere;font-size:14px}
 <h2>How conversions work</h2>
 <div class="cols">
 <ul>
-<li><b>Coordinates</b> are decimal degrees, WGS84, as stored in the source file. Altitude is in metres when the file has it.</li>
+<li><b>Coordinates</b> are handled internally as WGS84 latitude/longitude. Shapefiles are reprojected using their .prj file, or the source coordinate system you pick. With no .prj, UTM-looking numbers are read as UTM zone 11N, WGS 84.</li>
 <li><b>CSV input</b> needs latitude and longitude columns, found by name (lat, latitude, lon, long, lng, x, y) or chosen from the lists. Degrees-minutes such as <code>32°42.69'N</code> work too. A WKT column, if present, is used for lines and polygons.</li>
 <li><b>folder</b> is the path of KML Documents and Folders above each feature. GPX items get Waypoints, Routes or Tracks. KML output rebuilds the folders from it.</li>
 <li><b>Attribute fields</b> come from KML ExtendedData, two-column tables in descriptions, GPX comment, symbol and type, GeoJSON properties and extra CSV columns. Untick a column in the preview to leave it out of any format.</li>
@@ -155,7 +167,8 @@ code{overflow-wrap:anywhere;font-size:14px}
 <li><b>KML output</b> uses standard colours. Original KML styles and icons are not carried over.</li>
 <li><b>length_m</b> and <b>area_m2</b> are geodesic estimates. Polygon holes are subtracted from area.</li>
 <li><b>The map</b> offers satellite, ocean and street basemaps from Esri and OpenStreetMap. Loading tiles tells those services which area you are viewing, but your file contents never leave the browser. Without internet the page falls back to a plain plot.</li>
-<li><b>Not converted:</b> KML network links, image overlays and 3D models. Shapefiles are planned next.</li>
+<li><b>Shapefile output</b> is a zip. Each shapefile holds one geometry type, so mixed data becomes separate point, line and polygon shapefiles. Field names are cut to 10 characters, text to 254 characters, and attributes are UTF-8 (with a .cpg file).</li>
+<li><b>Not converted:</b> KML network links, image overlays, 3D models and multipatch shapefiles.</li>
 </ul>
 </div>
 </div></section>
@@ -163,14 +176,14 @@ code{overflow-wrap:anywhere;font-size:14px}
 <script>
 {
 const $=id=>document.getElementById(id);
-const ui={drop:$('drop'),pick:$('pick'),status:$('status'),fmt:$('fmt'),csvopts:$('csvopts'),mode:$('mode'),pos:$('pos'),strip:$('strip'),tbl:$('tbl'),wkt:$('wkt'),drop0:$('drop0'),bom:$('bom'),csvin:$('csvin'),latcol:$('latcol'),loncol:$('loncol'),svg:$('svg'),lmap:$('lmap'),empty:$('empty'),sum:$('sum'),save:$('save'),copy:$('copy'),notes:$('notes'),note:$('note'),tablewrap:$('tablewrap'),more:$('more'),colnote:$('colnote'),allcols:$('allcols')};
+const ui={drop:$('drop'),pick:$('pick'),status:$('status'),fmt:$('fmt'),csvopts:$('csvopts'),mode:$('mode'),pos:$('pos'),strip:$('strip'),tbl:$('tbl'),wkt:$('wkt'),drop0:$('drop0'),bom:$('bom'),csvin:$('csvin'),srcblk:$('srcblk'),srccrs:$('srccrs'),srccustom:$('srccustom'),srcnote:$('srcnote'),shpopts:$('shpopts'),outcrs:$('outcrs'),latcol:$('latcol'),loncol:$('loncol'),svg:$('svg'),lmap:$('lmap'),empty:$('empty'),sum:$('sum'),save:$('save'),copy:$('copy'),notes:$('notes'),note:$('note'),tablewrap:$('tablewrap'),more:$('more'),colnote:$('colnote'),allcols:$('allcols')};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const xe=s=>esc(String(s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,''));
 const store={get(k,d){try{const v=localStorage.getItem('mapconv-'+k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem('mapconv-'+k,JSON.stringify(v))}catch(e){}}};
 
-let files=[],feats=[],inNotes=[],csvHeads=[],rows=[],cols=[],attrKeys=[],outText='',outNotes=[],baseName='sample-seine-stations',sumIn='',dl=null;
+let files=[],feats=[],inNotes=[],csvHeads=[],srcInfo=[],samePrj='',outBlob=null,rows=[],cols=[],attrKeys=[],outText='',outNotes=[],baseName='sample-seine-stations',sumIn='',dl=null;
 let off=new Set(store.get('off',[])),fmt=store.get('format','csv');
-const EXT={csv:'csv',kml:'kml',gpx:'gpx',geojson:'geojson'},MIME={csv:'text/csv',kml:'application/vnd.google-earth.kml+xml',gpx:'application/gpx+xml',geojson:'application/geo+json'};
+const EXT={csv:'csv',kml:'kml',gpx:'gpx',geojson:'geojson',shp:'zip'},MIME={csv:'text/csv',kml:'application/vnd.google-earth.kml+xml',gpx:'application/gpx+xml',geojson:'application/geo+json',shp:'application/zip'};
 if(window.claude&&typeof window.claude.use==='function'){window.claude.use('downloads').then(d=>{dl=d}).catch(()=>{})}
 
 const SAMPLE=`<?xml version="1.0" encoding="UTF-8"?>
@@ -187,52 +200,109 @@ const SAMPLE=`<?xml version="1.0" encoding="UTF-8"?>
 <Placemark><name>Boat GPS track</name><gx:Track><when>2026-10-03T08:00:00Z</when><when>2026-10-03T08:06:00Z</when><when>2026-10-03T08:12:00Z</when><when>2026-10-03T08:18:00Z</when><gx:coord>-117.2290 32.7100 0</gx:coord><gx:coord>-117.2100 32.7020 0</gx:coord><gx:coord>-117.1900 32.6900 0</gx:coord><gx:coord>-117.1720 32.6770 0</gx:coord></gx:Track></Placemark>
 </Document></kml>`;
 
+/* ================= coordinate systems ================= */
+const GCS_WGS='GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+const GCS_NAD='GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+const utmPrj=(z,nad)=>'PROJCS["'+(nad?'NAD_1983':'WGS_1984')+'_UTM_Zone_'+z+'N",'+(nad?GCS_NAD:GCS_WGS)+',PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",'+(z*6-183)+'.0],PARAMETER["Scale_Factor",0.9996],PARAMETER["Latitude_Of_Origin",0.0],UNIT["Meter",1.0]]';
+const LCC=(lat0,lon0,lat1,lat2)=>'+proj=lcc +lat_0='+lat0+' +lon_0='+lon0+' +lat_1='+lat1+' +lat_2='+lat2+' +x_0=2000000.0001016 +y_0=500000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs';
+const CRS=[
+  ['4326','WGS 84 latitude/longitude (degrees)','+proj=longlat +datum=WGS84 +no_defs',GCS_WGS],
+  ['32611','UTM zone 11N, WGS 84 (metres)','+proj=utm +zone=11 +datum=WGS84 +units=m +no_defs',utmPrj(11)],
+  ['26911','UTM zone 11N, NAD83 (metres)','+proj=utm +zone=11 +datum=NAD83 +units=m +no_defs',utmPrj(11,1)],
+  ['32610','UTM zone 10N, WGS 84 (metres)','+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs',utmPrj(10)],
+  ['26910','UTM zone 10N, NAD83 (metres)','+proj=utm +zone=10 +datum=NAD83 +units=m +no_defs',utmPrj(10,1)],
+  ['2230','California State Plane zone 6, NAD83 (US feet)',LCC(32.1666666666667,-116.25,33.8833333333333,32.7833333333333),''],
+  ['2229','California State Plane zone 5, NAD83 (US feet)',LCC(33.5,-118,35.4666666666667,34.0333333333333),''],
+  ['3310','California Albers, NAD83 (metres)','+proj=aea +lat_0=0 +lon_0=-120 +lat_1=34 +lat_2=40.5 +x_0=0 +y_0=-4000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs',''],
+  ['3857','Web Mercator (metres)','+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs','']
+];
+const CRSBY=Object.fromEntries(CRS.map(c=>[c[0],c]));
+const prjName=t=>{const m=/^\s*(?:PROJCS|GEOGCS|PROJCRS|GEOGCRS)\["([^"]+)"/.exec(t||'');return m?m[1].replace(/_/g,' '):'custom coordinate system'};
+const isGeo=def=>/^\+proj=longlat\s+\+datum=WGS84/.test(def)||/^\s*GEOGCS\["(GCS_)?WGS[ _]?(19)?84"/i.test(def);
+const inDeg=p=>Math.abs(p[0])<=180&&Math.abs(p[1])<=90;
+/* Decide how to read one file's coordinates. Returns {tr,name} (tr null = already lat/long) or null to skip the file. */
+function chooseCRS(label,hint,hintName,sample,notes){
+  const sel=ui.srccrs.value||'auto';let def='',name='';
+  if(sel==='custom'){def=ui.srccustom.value.trim();name='custom definition';if(!def){notes.push(label+': enter a proj4 string or WKT for the custom coordinate system.');return null}}
+  else if(sel!=='auto'){def=CRSBY[sel][2];name=CRSBY[sel][1]}
+  else if(hint){def=hint;name=hintName}
+  else{
+    if(!sample.length||sample.every(inDeg))return {tr:null,name:'WGS 84 latitude/longitude'};
+    if(sample.every(p=>p[0]>100000&&p[0]<900000&&p[1]>0&&p[1]<10000000)){
+      def=CRSBY['32611'][2];name=CRSBY['32611'][1];
+      notes.push(label+': no coordinate system was given and the numbers look like UTM, so UTM zone 11N, WGS 84 was assumed. Change "Source coordinate system" if positions look wrong.');
+    }else{notes.push(label+': coordinates are not latitude/longitude and no coordinate system was given. Choose one under "Source coordinate system".');return null}
+  }
+  if(isGeo(def))return {tr:null,name};
+  if(!window.proj4){notes.push(label+': the projection library did not load, so '+name+' coordinates cannot be converted. Check the internet connection and reload the page.');return null}
+  try{const p=proj4(def,'EPSG:4326');p.forward([500000,3600000]);return {tr:c=>{const r=p.forward([c[0],c[1]]);return [r[0],r[1],c[2],c[3]]},name}}
+  catch(e){notes.push(label+': could not read the coordinate system ('+name+').');return null}
+}
+function applyTr(fs,tr,label,notes){
+  if(!tr)return fs;
+  let bad=0;
+  for(const f of fs)for(const g of f.geoms){g.c=g.c.map(tr);if(g.h)g.h=g.h.map(r=>r.map(tr));if(!g.c.every(c=>okc(c)&&inDeg(c)))bad++}
+  if(bad)notes.push(label+': some coordinates fell outside the latitude/longitude range after conversion, so the coordinate system is probably wrong.');
+  return fs;
+}
+
 /* ================= reading files ================= */
-async function unzip(buf){
+async function unzip(buf,want){
   const dv=new DataView(buf),u8=new Uint8Array(buf);let e=-1;
   for(let i=buf.byteLength-22;i>=Math.max(0,buf.byteLength-65557);i--){if(dv.getUint32(i,true)===0x06054b50){e=i;break}}
-  if(e<0)throw new Error('not a valid KMZ (zip) file');
+  if(e<0)throw new Error('not a valid zip file');
   const n=dv.getUint16(e+10,true);let p=dv.getUint32(e+16,true);const out=[];
   for(let k=0;k<n;k++){
     if(dv.getUint32(p,true)!==0x02014b50)break;
     const method=dv.getUint16(p+10,true),size=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),offs=dv.getUint32(p+42,true);
     const name=new TextDecoder().decode(u8.subarray(p+46,p+46+nl));p+=46+nl+xl+cl;
-    if(!/\.kml$/i.test(name))continue;
+    if(!want(name)||/(^|\/)__MACOSX\//.test(name)||/(^|\/)\._/.test(name)||name.endsWith('/'))continue;
     const start=offs+30+dv.getUint16(offs+26,true)+dv.getUint16(offs+28,true),raw=u8.slice(start,start+size);
-    let text;
-    if(method===0)text=new TextDecoder().decode(raw);
-    else if(method===8)text=await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+    let bytes;
+    if(method===0)bytes=raw;
+    else if(method===8)bytes=new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
     else throw new Error('unsupported compression in '+name);
-    out.push({name,text});
+    out.push({name,bytes});
   }
-  if(!out.length)throw new Error('no .kml file inside the KMZ');
-  out.sort((a,b)=>(b.name.toLowerCase()==='doc.kml')-(a.name.toLowerCase()==='doc.kml'));
   return out;
 }
+const ab=u=>u.buffer.slice(u.byteOffset,u.byteOffset+u.byteLength);
+const utf=u=>new TextDecoder().decode(u);
 function kindOf(name){
   const x=(name.split('.').pop()||'').toLowerCase();
-  return {kml:'kml',kmz:'kmz',gpx:'gpx',geojson:'geojson',json:'geojson',csv:'csv',tsv:'csv',txt:'csv',zip:'shp',shp:'shp',dbf:'shp',shx:'shp',prj:'shp'}[x]||'';
+  return {kml:'kml',kmz:'kmz',gpx:'gpx',geojson:'geojson',json:'geojson',csv:'csv',tsv:'csv',txt:'csv',zip:'shp',shp:'shp',dbf:'shp',shx:'shp',prj:'shp',cpg:'shp'}[x]||'';
 }
 async function load(list){
-  const got=[],bad=[];let shp=false;
+  const got=[],bad=[],parts=new Map();
+  const addPart=(path,bytes)=>{
+    const ext=path.split('.').pop().toLowerCase(),base=path.replace(/\.[^.\/]+$/,''),key=base.toLowerCase();
+    if(!parts.has(key))parts.set(key,{name:base.split('/').pop()+'.shp',kind:'shp'});
+    const g=parts.get(key);
+    if(ext==='shp'||ext==='dbf')g[ext]=ab(bytes);else if(ext==='prj'||ext==='cpg')g[ext]=utf(bytes).trim();
+  };
   for(const f of list){
-    const k=kindOf(f.name);
-    if(k==='shp'){shp=true;continue}
+    const k=kindOf(f.name),x=f.name.split('.').pop().toLowerCase();
     if(!k){bad.push(f.name+': not a supported file type');continue}
     try{
-      if(k==='kmz'){const parts=await unzip(await f.arrayBuffer());parts.forEach(p=>got.push({name:parts.length>1?f.name+'/'+p.name:f.name,kind:'kml',text:p.text}))}
+      if(k==='kmz'){const ps=await unzip(await f.arrayBuffer(),n=>/\.kml$/i.test(n));if(!ps.length)throw new Error('no .kml file inside the KMZ');ps.sort((a,b)=>(/(^|\/)doc\.kml$/i.test(b.name))-(/(^|\/)doc\.kml$/i.test(a.name)));ps.forEach(p=>got.push({name:ps.length>1?f.name+'/'+p.name:f.name,kind:'kml',text:utf(p.bytes)}))}
+      else if(x==='zip'){
+        const ps=await unzip(await f.arrayBuffer(),n=>/\.(shp|dbf|prj|cpg|kml|gpx|geojson|json|csv)$/i.test(n));
+        if(!ps.length)throw new Error('no shapefile or map file inside the zip');
+        for(const p of ps){const pk=kindOf(p.name);if(pk==='shp')addPart(f.name.replace(/\.zip$/i,'')+'/'+p.name,p.bytes);else got.push({name:f.name+'/'+p.name.split('/').pop(),kind:pk,text:utf(p.bytes)})}
+      }
+      else if(k==='shp'){if(x!=='shx')addPart(f.name,new Uint8Array(await f.arrayBuffer()))}
       else got.push({name:f.name,kind:k,text:await f.text()});
     }catch(err){bad.push(f.name+': '+err.message)}
   }
+  for(const g of parts.values()){if(g.shp)got.push(g);else bad.push(g.name.replace(/\.shp$/,'')+': the .shp file is missing')}
   const msg=[];
   if(got.length){
     files=got;ui.note.textContent='';
-    baseName=list.length===1?got[0].name.split('/')[0].replace(/\.[^.]+$/,''):'map-export';
+    baseName=got.length===1?got[0].name.split('/').pop().replace(/\.[^.]+$/,''):list.length===1?list[0].name.replace(/\.[^.]+$/,''):'map-export';
     ui.latcol.value='';ui.loncol.value='';
     parseAll();build();
     msg.push(esc(got.length+' file'+(got.length===1?'':'s')+' read.'));
   }
-  if(shp)msg.push('<span class="err">Shapefiles are not supported yet. They are planned for the next update.</span>');
   if(bad.length)msg.push('<span class="err">Could not read '+bad.map(esc).join('; ')+'</span>');
   ui.status.innerHTML=msg.join(' ');
 }
@@ -291,8 +361,8 @@ function readGPX(text,src,notes){
 const strv=v=>v==null?'':typeof v==='object'?JSON.stringify(v):String(v);
 function readGeoJSON(text,src,notes){
   let j;try{j=JSON.parse(text.replace(/^﻿/,''))}catch(e){notes.push(src+' is not valid JSON and was skipped.');return []}
-  const crs=j&&j.crs&&j.crs.properties&&j.crs.properties.name;
-  if(crs&&!/CRS84|4326/.test(crs))notes.push(src+' says it uses '+crs+'. Coordinates were read as WGS84 longitude and latitude, so positions may be wrong.');
+  const crs=j&&j.crs&&j.crs.properties&&j.crs.properties.name,code=crs&&!/CRS84|4326/.test(crs)?(/EPSG:+(\d+)/.exec(crs)||[])[1]:'';
+  if(code&&!CRSBY[code])notes.push(src+' says it uses '+crs+', which this tool does not know. Choose it under "Source coordinate system" or use "Other".');
   const list=j.type==='FeatureCollection'?j.features||[]:j.type==='Feature'?[j]:[{type:'Feature',geometry:j,properties:{}}];
   const P=a=>[+a[0],+a[1],a.length>2?+a[2]:NaN,''];
   const geo=(g,out)=>{
@@ -306,18 +376,19 @@ function readGeoJSON(text,src,notes){
     else if(t==='MultiPolygon')c.forEach(pg=>out.push({t:'Polygon',c:(pg[0]||[]).map(P).filter(okc),h:pg.slice(1).map(r=>r.map(P).filter(okc))}));
     else if(t==='GeometryCollection')(g.geometries||[]).forEach(x=>geo(x,out));
   };
-  const out=[];let big=false;
+  const out=[];
   for(const f of list){
     const pr={...(f.properties||{})},g=[];geo(f.geometry,g);
-    if(g.some(x=>x.c.some(p=>Math.abs(p[0])>180||Math.abs(p[1])>90)))big=true;
     const take=keys=>{for(const k of keys)if(k in pr){const v=strv(pr[k]);delete pr[k];return v}return ''};
     const ct=pr.coordTimes;delete pr.coordTimes;
     if(Array.isArray(ct)){let i=0;for(const x of g)if(x.t==='LineString'){const arr=Array.isArray(ct[i])?ct[i]:ct;if(arr.length===x.c.length){x.t='Track';x.c.forEach((p,k)=>p[3]=String(arr[k]))}i++}}
     out.push({src,kind:'geojson',name:take(['name','Name','NAME','title']),desc:take(['description','Description','desc']),folder:take(['folder']),time:take(['time','timestamp','when']),begin:take(['time_begin','begin']),end:take(['time_end','end']),style:'',geoms:g,
       attrs:Object.fromEntries(Object.entries(pr).filter(([k])=>!['source_file','style'].includes(k)).map(([k,v])=>[k,strv(v)]))});
   }
-  if(big)notes.push(src+' has coordinates outside the latitude and longitude range, so it is probably in a projected system. Positions will be wrong until projected files are supported.');
-  return out;
+  const ch=chooseCRS(src,code&&CRSBY[code]?CRSBY[code][2]:'',code&&CRSBY[code]?CRSBY[code][1]:'',out.flatMap(f=>f.geoms.flatMap(g=>g.c.slice(0,3))).slice(0,150),notes);
+  if(!ch)return [];
+  srcInfo.push(src+': '+ch.name);
+  return applyTr(out,ch.tr,src,notes);
 }
 
 function parseDelim(text){
@@ -370,14 +441,14 @@ function parseWKT(str){
   const out=[];try{geom(out)}catch(e){return null}return out;
 }
 const norm=h=>h.toLowerCase().replace(/[^a-z0-9]/g,'');
-const LATN=['lat','latitude','latdd','latdeg','latdecimal','decimallatitude','gpslat','gpslatitude','startlat','pointy','ycoord'],LONN=['lon','long','lng','longitude','londd','londeg','longdd','londecimal','decimallongitude','gpslon','gpslong','gpslongitude','startlon','startlong','pointx','xcoord'];
+const LATN=['lat','latitude','northing','utmn','utmnorthing','north','latdd','latdeg','latdecimal','decimallatitude','gpslat','gpslatitude','startlat','pointy','ycoord'],LONN=['lon','long','lng','longitude','easting','utme','utmeasting','east','londd','londeg','longdd','londecimal','decimallongitude','gpslon','gpslong','gpslongitude','startlon','startlong','pointx','xcoord'];
 function guessCols(H){
   const n=H.map(norm),f=p=>n.findIndex(p);
   let la=f(h=>LATN.includes(h));if(la<0)la=f(h=>h.startsWith('lat'));if(la<0)la=f(h=>h==='y');
   let lo=f(h=>LONN.includes(h));if(lo<0)lo=f(h=>h.startsWith('lon')||h.startsWith('lng'));if(lo<0)lo=f(h=>h==='x');
   return {la,lo};
 }
-const SKIPN=new Set(['geometry','vertices','lengthm','aream2','sourcefile','style','part','vertex']);
+const SKIPN=new Set(['geometry','vertices','lengthm','aream2','sourcefile','srcfile','style','part','vertex']);
 function readCSV(text,src,notes){
   const R=parseDelim(text);
   if(R.length<2){notes.push(src+' has no data rows.');return []}
@@ -396,21 +467,112 @@ function readCSV(text,src,notes){
   for(const r of R.slice(1)){
     let g=null;
     if(wk>=0&&(r[wk]||'').trim())g=parseWKT(r[wk]);
-    if(!g&&la>=0&&lo>=0){const y=deg(r[la]),x=deg(r[lo]);if(isFinite(x)&&isFinite(y)&&Math.abs(y)<=90&&Math.abs(x)<=180)g=[{t:'Point',c:[[x,y,role.alt>=0&&(r[role.alt]||'').trim()!==''?+r[role.alt]:NaN,'']]}]}
+    if(!g&&la>=0&&lo>=0){const y=deg(r[la]),x=deg(r[lo]);if(isFinite(x)&&isFinite(y))g=[{t:'Point',c:[[x,y,role.alt>=0&&(r[role.alt]||'').trim()!==''?+r[role.alt]:NaN,'']]}]}
     if(!g){skipped++;continue}
     const attrs={};H.forEach((h,i)=>{if(!used.has(i)&&!SKIPN.has(n[i])&&h)attrs[h]=(r[i]??'').trim()});
     const v=i=>i>=0?(r[i]??'').trim():'';
     out.push({src,kind:'csv',folder:v(role.folder),name:v(role.name),desc:v(role.desc),geoms:g,attrs,time:v(role.time),begin:v(role.begin),end:v(role.end),style:''});
   }
+  const ch=chooseCRS(src,'','',out.flatMap(f=>f.geoms.flatMap(g=>g.c.slice(0,3))).slice(0,150),notes);
+  if(!ch)return [];
+  srcInfo.push(src+': '+ch.name);
+  applyTr(out,ch.tr,src,[]);
+  const keepF=out.filter(f=>f.geoms.every(g=>g.c.every(c=>okc(c)&&inDeg(c))));
+  skipped+=out.length-keepF.length;
   if(skipped)notes.push(src+': '+skipped+' row'+(skipped===1?'':'s')+' had no usable coordinates and '+(skipped===1?'was':'were')+' skipped.');
+  return keepF;
+}
+/* ---------- shapefile (.shp + .dbf + .prj + .cpg) ---------- */
+function parseShp(buf){
+  const dv=new DataView(buf),out=[];let p=100;
+  while(p+12<=buf.byteLength){
+    const len=dv.getInt32(p+4,false)*2,s=p+8;p=s+len;
+    const st=dv.getInt32(s,true),P=(o,z)=>[dv.getFloat64(o,true),dv.getFloat64(o+8,true),z,''];
+    if(st===1||st===11||st===21)out.push({k:'pt',parts:[[P(s+4,st===11?dv.getFloat64(s+20,true):NaN)]]});
+    else if(st===8||st===18||st===28){const n=dv.getInt32(s+36,true),zo=s+40+16*n+16;out.push({k:'pt',parts:Array.from({length:n},(_,i)=>[P(s+40+16*i,st===18?dv.getFloat64(zo+8*i,true):NaN)])})}
+    else if([3,13,23,5,15,25].includes(st)){
+      const np=dv.getInt32(s+36,true),n=dv.getInt32(s+40,true),po=s+44,p0=po+4*np,zo=p0+16*n+16,hz=st===13||st===15;
+      const ix=Array.from({length:np},(_,i)=>dv.getInt32(po+4*i,true));ix.push(n);
+      const parts=[];for(let k=0;k<np;k++){const a=[];for(let i=ix[k];i<ix[k+1];i++)a.push(P(p0+16*i,hz?dv.getFloat64(zo+8*i,true):NaN));parts.push(a)}
+      out.push({k:st%10===5?'pg':'ln',parts});
+    }
+    else out.push(st===0?null:{k:'x',parts:[]});
+  }
   return out;
 }
+const ringSign=r=>{let s=0;for(let i=0;i<r.length-1;i++)s+=(r[i+1][0]-r[i][0])*(r[i+1][1]+r[i][1]);return s};
+function inRing(pt,r){let ins=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const xi=r[i][0],yi=r[i][1],xj=r[j][0],yj=r[j][1];if(((yi>pt[1])!==(yj>pt[1]))&&(pt[0]<(xj-xi)*(pt[1]-yi)/(yj-yi)+xi))ins=!ins}return ins}
+function ringsToPolys(rings){
+  const outer=[],holes=[];
+  for(const r of rings){if(r.length<3)continue;(ringSign(r)>0?outer:holes).push(r)}
+  if(!outer.length)return holes.map(r=>({t:'Polygon',c:r,h:[]}));
+  const polys=outer.map(r=>({t:'Polygon',c:r,h:[]}));
+  for(const h of holes){const pg=polys.find(P=>inRing(h[0],P.c));if(pg)pg.h.push(h);else polys.push({t:'Polygon',c:h,h:[]})}
+  return polys;
+}
+function parseDbf(buf,cpg){
+  const dv=new DataView(buf),u8=new Uint8Array(buf),n=dv.getUint32(4,true),hl=dv.getUint16(8,true),rl=dv.getUint16(10,true),fields=[];
+  for(let o=32;o+32<=hl&&u8[o]!==0x0D;o+=32){let e=o;while(e<o+11&&u8[e])e++;fields.push({name:new TextDecoder('latin1').decode(u8.subarray(o,e)).trim(),type:String.fromCharCode(u8[o+11]),len:u8[o+16]})}
+  let enc=cpg&&/1252|latin|8859/i.test(cpg)?'windows-1252':'utf-8';
+  if(enc==='utf-8'&&!(cpg&&/utf/i.test(cpg))){try{new TextDecoder('utf-8',{fatal:true}).decode(u8.subarray(hl,Math.min(u8.length,hl+n*rl)))}catch(e){enc='windows-1252'}}
+  const dec=new TextDecoder(enc),rows=[];
+  for(let i=0;i<n;i++){
+    const o=hl+i*rl;if(o+rl>u8.length)break;
+    let q=o+1;
+    const r=fields.map(f=>{
+      let v=dec.decode(u8.subarray(q,q+f.len)).replace(/\0/g,'').trim();q+=f.len;
+      if(f.type==='D'&&/^\d{8}$/.test(v))v=v.slice(0,4)+'-'+v.slice(4,6)+'-'+v.slice(6);
+      else if(f.type==='L')v=/^[TtYy]$/.test(v)?'true':/^[FfNn]$/.test(v)?'false':'';
+      else if((f.type==='N'||f.type==='F')&&v)v=/^\*+$/.test(v)||!isFinite(+v)?'':String(+v);
+      return v;
+    });
+    r.deleted=u8[o]===0x2A;rows.push(r);
+  }
+  return {rows,fields};
+}
+function readSHP(f,notes){
+  const label=f.name,shapes=parseShp(f.shp);
+  let rows=[],fields=[];
+  if(f.dbf)({rows,fields}=parseDbf(f.dbf,f.cpg));else notes.push(label+': no .dbf file, so there are no attributes.');
+  if(f.dbf&&rows.length!==shapes.length)notes.push(label+': the .dbf has '+rows.length+' records and the .shp has '+shapes.length+'. They were matched in order.');
+  if(shapes.some(s=>s&&s.k==='x'))notes.push(label+': multipatch (3D) shapes are not supported and were skipped.');
+  const ch=chooseCRS(label,f.prj||'',f.prj?prjName(f.prj):'',shapes.filter(s=>s&&s.parts.length).slice(0,50).flatMap(s=>s.parts[0].slice(0,3)),notes);
+  if(!ch)return [];
+  srcInfo.push(label+': '+ch.name+(f.prj&&ui.srccrs.value==='auto'?' (from .prj)':''));
+  const H=fields.map(x=>x.name),n=H.map(norm),pick=names=>n.findIndex(h=>names.includes(h));
+  const ni=pick(['name','title','label','station','site','sitename','stationid','placemark']),di=pick(['description','descript','descriptio','desc','notes','note','comments','comment']);
+  const fi=pick(['folder']),ti=pick(['time','timestamp']),bi=pick(['timebegin']),ei=pick(['timeend']),ai=pick(['altitude','elevation','ele']);
+  const used=new Set([di,fi,ti,bi,ei,ai].filter(i=>i>=0));
+  if(ni>=0&&!['station','site','stationid'].includes(n[ni]))used.add(ni);
+  const layer=label.replace(/\.shp$/i,''),out=[];
+  shapes.forEach((s,i)=>{
+    const r=rows[i]||[];if(r.deleted)return;
+    const v=j=>j>=0?r[j]||'':'';
+    let geoms=[];
+    if(s&&s.k==='pt')geoms=s.parts.map(c=>({t:'Point',c}));
+    else if(s&&s.k==='ln')geoms=s.parts.filter(c=>c.length>1).map(c=>({t:'LineString',c}));
+    else if(s&&s.k==='pg')geoms=ringsToPolys(s.parts);
+    if(ai>=0&&geoms.length===1&&geoms[0].t==='Point'&&v(ai)!==''&&!isFinite(geoms[0].c[0][2]))geoms[0].c[0][2]=+v(ai);
+    const attrs={};H.forEach((h,j)=>{if(!used.has(j)&&!SKIPN.has(n[j])&&h)attrs[h]=r[j]??''});
+    out.push({src:label,kind:'shp',folder:fi>=0?v(fi):layer,name:v(ni),desc:v(di),geoms,attrs,time:v(ti),begin:v(bi),end:v(ei),style:''});
+  });
+  return applyTr(out,ch.tr,label,notes);
+}
+
 function parseAll(){
-  feats=[];inNotes=[];csvHeads=[];
+  feats=[];inNotes=[];csvHeads=[];srcInfo=[];
   for(const f of files){
+    if(f.kind==='shp'){feats.push(...readSHP(f,inNotes));continue}
     const r=f.kind==='kml'?readKML:f.kind==='gpx'?readGPX:f.kind==='geojson'?readGeoJSON:readCSV;
     feats.push(...r(f.text,f.name,inNotes));
   }
+  ui.srcblk.hidden=!files.some(f=>/shp|csv|geojson/.test(f.kind));
+  ui.srccustom.hidden=ui.srccrs.value!=='custom';
+  ui.srcnote.textContent=srcInfo.length?'Read as: '+srcInfo.join('; ')+'.':'';
+  const sp=files.find(f=>f.kind==='shp'&&f.prj);samePrj=sp?sp.prj:'';
+  const ov=ui.outcrs.value||store.get('outcrs','4326');
+  ui.outcrs.innerHTML=CRS.filter(c=>c[3]).map(c=>'<option value="'+c[0]+'">'+esc(c[1])+'</option>').join('')+(samePrj?'<option value="same">Same as input: '+esc(prjName(samePrj))+'</option>':'');
+  ui.outcrs.value=[...ui.outcrs.options].some(o=>o.value===ov)?ov:'4326';
   ui.csvin.hidden=!files.some(f=>f.kind==='csv');
   for(const [sel,label] of [[ui.latcol,'Latitude: auto'],[ui.loncol,'Longitude: auto']]){
     const v=sel.value;sel.innerHTML='<option value="">'+label+'</option>'+csvHeads.map(h=>'<option>'+esc(h)+'</option>').join('');sel.value=csvHeads.includes(v)?v:'';
@@ -551,6 +713,121 @@ function writeGeoJSON(fs,keep,akeys){
   return {text:'{"type":"FeatureCollection","features":[\n'+out.join(',\n')+'\n]}\n',notes:[]};
 }
 
+/* ---------- shapefile writer (zip of .shp .shx .dbf .prj .cpg per geometry type) ---------- */
+const CRCT=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+const crc32=u=>{let c=0xFFFFFFFF;for(let i=0;i<u.length;i++)c=CRCT[(c^u[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0};
+function makeZip(files){
+  const enc=new TextEncoder(),chunks=[],central=[],d=new Date();let off=0;
+  const time=(d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1),date=((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate();
+  for(const f of files){
+    const nm=enc.encode(f.name),crc=crc32(f.data),n=f.data.length,h=new DataView(new ArrayBuffer(30)),c=new DataView(new ArrayBuffer(46));
+    h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);h.setUint16(10,time,true);h.setUint16(12,date,true);h.setUint32(14,crc,true);h.setUint32(18,n,true);h.setUint32(22,n,true);h.setUint16(26,nm.length,true);
+    c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x0800,true);c.setUint16(12,time,true);c.setUint16(14,date,true);c.setUint32(16,crc,true);c.setUint32(20,n,true);c.setUint32(24,n,true);c.setUint16(28,nm.length,true);c.setUint32(42,off,true);
+    chunks.push(new Uint8Array(h.buffer),nm,f.data);central.push(new Uint8Array(c.buffer),nm);off+=30+nm.length+n;
+  }
+  const cs=central.reduce((s,u)=>s+u.length,0),e=new DataView(new ArrayBuffer(22));
+  e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cs,true);e.setUint32(16,off,true);
+  return new Blob([...chunks,...central,new Uint8Array(e.buffer)],{type:'application/zip'});
+}
+const orient=(r,cw)=>(ringSign(r)>0)===cw?r:r.slice().reverse();
+function buildShp(type,recs){
+  // recs: [{pts:[[x,y]...]}] for Point/MultiPoint, [{parts:[[[x,y]...]...]}] for PolyLine/Polygon
+  const size=r=>type===1?20:type===8?40+16*r.pts.length:44+4*r.parts.length+16*r.parts.reduce((s,p)=>s+p.length,0);
+  const sizes=recs.map(size),total=100+sizes.reduce((s,n)=>s+8+n,0);
+  const shp=new DataView(new ArrayBuffer(total)),shx=new DataView(new ArrayBuffer(100+8*recs.length));
+  let bb=[Infinity,Infinity,-Infinity,-Infinity];
+  const ext=pts=>{let b=[Infinity,Infinity,-Infinity,-Infinity];for(const p of pts){b=[Math.min(b[0],p[0]),Math.min(b[1],p[1]),Math.max(b[2],p[0]),Math.max(b[3],p[1])]}return b};
+  let o=100;
+  recs.forEach((r,i)=>{
+    const pts=type===1||type===8?r.pts:r.parts.flat(),b=ext(pts);
+    bb=[Math.min(bb[0],b[0]),Math.min(bb[1],b[1]),Math.max(bb[2],b[2]),Math.max(bb[3],b[3])];
+    shx.setInt32(100+8*i,o/2,false);shx.setInt32(104+8*i,sizes[i]/2,false);
+    shp.setInt32(o,i+1,false);shp.setInt32(o+4,sizes[i]/2,false);
+    const s=o+8;shp.setInt32(s,type,true);
+    if(type===1){shp.setFloat64(s+4,pts[0][0],true);shp.setFloat64(s+12,pts[0][1],true)}
+    else{
+      b.forEach((v,k)=>shp.setFloat64(s+4+8*k,v,true));
+      if(type===8){shp.setInt32(s+36,pts.length,true);pts.forEach((p,k)=>{shp.setFloat64(s+40+16*k,p[0],true);shp.setFloat64(s+48+16*k,p[1],true)})}
+      else{
+        shp.setInt32(s+36,r.parts.length,true);shp.setInt32(s+40,pts.length,true);
+        let at=0;r.parts.forEach((p,k)=>{shp.setInt32(s+44+4*k,at,true);at+=p.length});
+        const p0=s+44+4*r.parts.length;pts.forEach((p,k)=>{shp.setFloat64(p0+16*k,p[0],true);shp.setFloat64(p0+8+16*k,p[1],true)});
+      }
+    }
+    o+=8+sizes[i];
+  });
+  for(const [dv,len] of [[shp,total],[shx,100+8*recs.length]]){
+    dv.setInt32(0,9994,false);dv.setInt32(24,len/2,false);dv.setInt32(28,1000,true);dv.setInt32(32,type,true);
+    (recs.length?bb:[0,0,0,0]).forEach((v,k)=>dv.setFloat64(36+8*k,v,true));
+  }
+  return [new Uint8Array(shp.buffer),new Uint8Array(shx.buffer)];
+}
+function buildDbf(defs,n,val,stats){
+  const enc=new TextEncoder();
+  const cols=defs.map(d=>{
+    const vals=Array.from({length:n},(_,i)=>{const v=val(i,d.k);return v==null?'':String(v)}),ne=vals.filter(v=>v!=='');
+    let type='C',len=1,dec=0;
+    if(ne.length&&ne.every(numish)){dec=Math.max(0,...ne.map(v=>(v.split('.')[1]||'').length));len=Math.max(...ne.map(v=>v.split('.')[0].length))+(dec?dec+1:0);if(len<=19)type='N';else dec=0}
+    if(type==='C')len=Math.min(254,Math.max(1,...vals.map(v=>enc.encode(v).length)));
+    return {...d,type,len,dec,vals};
+  });
+  const hl=32+32*cols.length+1,rl=1+cols.reduce((s,c)=>s+c.len,0),buf=new Uint8Array(hl+rl*n+1),dv=new DataView(buf.buffer),now=new Date();
+  buf[0]=3;buf[1]=now.getFullYear()-1900;buf[2]=now.getMonth()+1;buf[3]=now.getDate();dv.setUint32(4,n,true);dv.setUint16(8,hl,true);dv.setUint16(10,rl,true);
+  cols.forEach((c,i)=>{const o=32+32*i;buf.set(enc.encode(c.nm).subarray(0,10),o);buf[o+11]=c.type.charCodeAt(0);buf[o+16]=c.len;buf[o+17]=c.dec});
+  buf[hl-1]=0x0D;
+  for(let r=0;r<n;r++){
+    let o=hl+r*rl;buf[o++]=0x20;
+    for(const c of cols){
+      let v=c.vals[r],b;
+      if(c.type==='N')b=enc.encode((v===''?'':c.dec?(+v).toFixed(c.dec):String(+v)).padStart(c.len));
+      else{b=enc.encode(v);if(b.length>c.len){let cut=c.len;while(cut>0&&(b[cut]&0xC0)===0x80)cut--;b=b.subarray(0,cut);stats.cut++}}
+      buf.fill(0x20,o,o+c.len);buf.set(b.subarray(0,c.len),o);o+=c.len;
+    }
+  }
+  buf[buf.length-1]=0x1A;
+  return buf;
+}
+function writeSHP(fs,keep,akeys){
+  const notes=[],key=ui.outcrs.value||'4326';
+  const oc=key==='same'?{name:prjName(samePrj),def:samePrj,prj:samePrj}:{name:CRSBY[key][1],def:CRSBY[key][2],prj:CRSBY[key][3]};
+  let tr=c=>c;
+  if(!isGeo(oc.def)){
+    if(!window.proj4)return {blob:null,notes:['The projection library did not load, so the shapefile cannot be written in '+oc.name+'. Choose WGS 84 latitude/longitude, or check the internet connection and reload.']};
+    try{const p=proj4('EPSG:4326',oc.def);tr=c=>p.forward([c[0],c[1]])}catch(e){return {blob:null,notes:['Could not use the coordinate system '+oc.name+'.']}}
+  }
+  const L={pt:[],ln:[],pg:[]};let split=0,none=0,zl=false,multi=false;
+  for(const f of fs){
+    const gs=f.geoms.filter(g=>g.c.length);if(!gs.length){none++;continue}
+    const pts=gs.filter(g=>g.t==='Point').map(g=>g.c[0]),lns=gs.filter(g=>g.t==='LineString'||g.t==='Track'),pgs=gs.filter(g=>g.t==='Polygon');
+    if([pts.length,lns.length,pgs.length].filter(Boolean).length>1)split++;
+    if(pts.length){L.pt.push({f,pts:pts.map(tr),alt:pts.length===1&&isFinite(pts[0][2])?String(pts[0][2]):''});if(pts.length>1)multi=true}
+    if(lns.length){L.ln.push({f,parts:lns.map(g=>g.c.map(tr))});if(lns.some(g=>g.c.some(c=>isFinite(c[2]))))zl=true}
+    if(pgs.length){const parts=[];for(const g of pgs){parts.push(orient(closed(g.c).map(tr),true));for(const h of g.h||[])parts.push(orient(closed(h).map(tr),false))}L.pg.push({f,parts});if(pgs.some(g=>g.c.some(c=>isFinite(c[2]))))zl=true}
+  }
+  const used=new Set(),renamed=[];
+  const fname=(k,want)=>{let nm=want.replace(/[^A-Za-z0-9_]/g,'_');if(!/^[A-Za-z]/.test(nm))nm='f_'+nm;nm=nm.slice(0,10);const base=nm;let i=1;while(used.has(nm.toLowerCase())){const s='_'+(i++);nm=base.slice(0,10-s.length)+s}used.add(nm.toLowerCase());if(nm!==want)renamed.push(k+' → '+nm);return nm};
+  const defs=[['name','name'],['description','descript'],['folder','folder'],['source_file','src_file'],['time','time'],['time_begin','time_begin'],['time_end','time_end']].filter(([k])=>keep(k)).map(([k,w])=>({k,nm:fname(k,w)}))
+    .concat(akeys.map(k=>({k,nm:fname(k,k)})));
+  const altDef={k:'@alt',nm:used.has('altitude')?fname('altitude','alt_m'):'altitude'};
+  const val=(r,k)=>{const f=r.f;return k==='@alt'?r.alt:k==='name'?f.name:k==='description'?(hasHTML(f.d)?htmlText(f.d):f.d):k==='folder'?f.folder:k==='source_file'?f.src:k==='time'?f.time:k==='time_begin'?f.begin:k==='time_end'?f.end:f.x[k]};
+  const layers=[['pt',multi?8:1,'points'],['ln',3,'lines'],['pg',5,'polygons']].filter(([k])=>L[k].length);
+  const files=[],stats={cut:0},enc=new TextEncoder();
+  for(const [k,type,word] of layers){
+    const recs=L[k],nm=baseName.replace(/[^\w.-]+/g,'_')+(layers.length>1?'_'+word:'');
+    const [shp,shx]=buildShp(type,recs);
+    const d=k==='pt'&&recs.some(r=>r.alt)?defs.concat(altDef):defs;
+    files.push({name:nm+'.shp',data:shp},{name:nm+'.shx',data:shx},{name:nm+'.dbf',data:buildDbf(d.length?d:[{k:'@id',nm:'id'}],recs.length,(i,key)=>key==='@id'?String(i+1):val(recs[i],key),stats)},{name:nm+'.prj',data:enc.encode(oc.prj)},{name:nm+'.cpg',data:enc.encode('UTF-8')});
+  }
+  if(layers.length>1)notes.push('Shapefiles hold one geometry type each, so this zip has '+layers.length+' shapefiles: '+layers.map(l=>l[2]).join(', ')+'.'+(split?' '+split+' feature'+(split===1?' has':'s have')+' mixed geometry and '+(split===1?'appears':'appear')+' in more than one.':''));
+  if(renamed.length)notes.push('Field names were shortened to fit the 10-character limit: '+renamed.join(', ')+'.');
+  if(stats.cut)notes.push(stats.cut+' text value'+(stats.cut===1?' was':'s were')+' longer than 254 bytes and '+(stats.cut===1?'was':'were')+' cut short.');
+  if(zl)notes.push('Altitudes on lines and polygons are not kept. Points keep altitude in an "altitude" field.');
+  if(L.ln.some(r=>r.f.geoms.some(g=>g.t==='Track')))notes.push('Track times are not kept, since shapefiles store no time per vertex.');
+  if(none)notes.push(none+' feature'+(none===1?' has':'s have')+' no coordinates and '+(none===1?'was':'were')+' left out.');
+  notes.push('Coordinates are written in '+oc.name+'.');
+  return {blob:layers.length?makeZip(files):null,notes};
+}
+
 /* ================= build: features -> columns, rows, output ================= */
 function build(){
   const strip=ui.strip.checked,tbl=ui.tbl.checked;
@@ -600,12 +877,15 @@ function render(){
   if(csv){
     const out=cols.filter(keep),q=v=>{v=v==null?'':String(v);return /[",\r\n]/.test(v)||/^\s|\s$/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
     outText=out.length?[out.map(q).join(','),...rows.map(r=>out.map(k=>q(r[k])).join(','))].join('\r\n')+'\r\n':'';
+    outBlob=null;
+  }else if(fmt==='shp'){
+    const r=writeSHP(feats,keep,akeys);outBlob=r.blob;outText='';outNotes=r.notes;
   }else{
     const r=(fmt==='kml'?writeKML:fmt==='gpx'?writeGPX:writeGeoJSON)(feats,keep,akeys);
-    outText=feats.length?r.text:'';outNotes=r.notes;
+    outText=feats.length?r.text:'';outNotes=r.notes;outBlob=null;
   }
   const nOut=cols.filter(k=>keep(k)&&!locked(k)).length,nAll=cols.filter(k=>!locked(k)).length,nOff=nAll-nOut;
-  ui.sum.innerHTML=sumIn+' &rarr; '+(csv?'<b>'+rows.length.toLocaleString()+'</b> rows, ':'')+'<b>'+nOut+'</b> '+(nOff?'of '+nAll+' ':'')+(csv?'columns':'fields')+' in '+fmt.toUpperCase();
+  ui.sum.innerHTML=sumIn+' &rarr; '+(csv?'<b>'+rows.length.toLocaleString()+'</b> row'+(rows.length===1?'':'s')+', ':'')+'<b>'+nOut+'</b> '+(nOff?'of '+nAll+' ':'')+(csv?'columns':'fields')+' in '+(fmt==='shp'?'shapefile':fmt.toUpperCase());
   const notes=inNotes.concat(outNotes);
   ui.notes.hidden=!notes.length;ui.notes.innerHTML=notes.map(t=>'<li>'+esc(t)+'</li>').join('');
   ui.colnote.textContent=nOff?nOff+' column'+(nOff===1?'':'s')+' left out. Tick a heading to put it back.':'Untick a column heading to leave it out of the export.';
@@ -616,9 +896,9 @@ function render(){
   ui.tablewrap.innerHTML=rows.length?'<table><thead><tr>'+cols.map(k=>'<th'+(keep(k)?'':' class="off"')+'><label><input type="checkbox" data-k="'+esc(k)+'"'+(keep(k)?' checked':'')+(locked(k)?' disabled title="Geometry is always exported"':'')+'><span>'+esc(k)+'</span></label></th>').join('')+'</tr></thead><tbody>'+show.map(r=>'<tr>'+cols.map(k=>'<td'+cls(k)+' title="'+esc(r[k]??'')+'">'+esc(r[k]??'')+'</td>').join('')+'</tr>').join('')+'</tbody></table>':'<p class="note" style="padding:12px;margin:0">No features found.</p>';
   ui.tablewrap.scrollLeft=sl;ui.tablewrap.scrollTop=st;
   ui.more.textContent=rows.length>200?'Preview shows the first 200 rows of '+rows.length.toLocaleString()+'.':'';
-  ui.save.textContent='Download .'+EXT[fmt];ui.copy.textContent='Copy '+fmt.toUpperCase();
-  ui.save.disabled=ui.copy.disabled=!outText;
-  ui.csvopts.hidden=!csv;
+  ui.save.textContent=fmt==='shp'?'Download shapefile (.zip)':'Download .'+EXT[fmt];ui.copy.textContent='Copy '+fmt.toUpperCase();
+  ui.save.disabled=!(outText||outBlob);ui.copy.disabled=!outText;ui.copy.hidden=fmt==='shp';
+  ui.csvopts.hidden=!csv;ui.shpopts.hidden=fmt!=='shp';
 }
 
 /* ================= map: Leaflet basemap with plain-plot fallback ================= */
@@ -697,18 +977,22 @@ document.addEventListener('dragover',e=>e.preventDefault());document.addEventLis
 ui.fmt.addEventListener('change',e=>{fmt=e.target.value;store.set('format',fmt);render()});
 [ui.strip,ui.tbl].forEach(el=>el.addEventListener('change',build));
 [ui.mode,ui.pos,ui.wkt,ui.drop0,ui.bom].forEach(el=>el.addEventListener('change',render));
-[ui.latcol,ui.loncol].forEach(el=>el.addEventListener('change',()=>{parseAll();build()}));
+[ui.latcol,ui.loncol,ui.srccustom].forEach(el=>el.addEventListener('change',()=>{parseAll();build()}));
+ui.srccrs.addEventListener('change',()=>{ui.srccustom.hidden=ui.srccrs.value!=='custom';if(ui.srccrs.value==='custom'&&!ui.srccustom.value.trim()){ui.srccustom.focus();return}parseAll();build()});
+ui.outcrs.addEventListener('change',()=>{store.set('outcrs',ui.outcrs.value);render()});
 ui.tablewrap.addEventListener('change',e=>{const k=e.target.dataset&&e.target.dataset.k;if(k==null)return;if(e.target.checked)off.delete(k);else off.add(k);store.set('off',[...off]);render()});
 ui.allcols.addEventListener('click',()=>{cols.forEach(k=>off.delete(k));store.set('off',[...off]);render()});
 const payload=()=>(fmt==='csv'&&ui.bom.checked?'﻿':'')+outText;
 ui.save.addEventListener('click',async()=>{
-  const name=baseName+'.'+EXT[fmt];
+  const name=baseName+(fmt==='shp'?'_shapefile':'')+'.'+EXT[fmt];
+  if(fmt==='shp'){const a=document.createElement('a');a.href=URL.createObjectURL(outBlob);a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);ui.status.textContent='Downloading '+name+'.';return}
   if(dl&&fmt==='csv'){try{await dl.save({filename:name,data:payload()});ui.status.textContent='Saved '+name+'.'}catch(e){ui.status.textContent=e&&e.code==='declined'?'Download cancelled.':'Download is not available here. Copy still works.'}return}
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([payload()],{type:MIME[fmt]+';charset=utf-8'}));a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
   ui.status.textContent='Downloading '+name+'.';
 });
 ui.copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(outText);ui.status.textContent=fmt.toUpperCase()+' copied to the clipboard.'}catch(e){ui.status.textContent='Copy was blocked by the browser.'}});
 
+ui.srccrs.innerHTML='<option value="auto">Automatic (.prj file, or detect)</option>'+CRS.map(c=>'<option value="'+c[0]+'">'+esc(c[1])+'</option>').join('')+'<option value="custom">Other (paste a proj4 string or WKT)</option>';
 const r0=ui.fmt.querySelector('input[value="'+fmt+'"]');if(r0)r0.checked=true;else fmt='csv';
 files=[{name:'sample-seine-stations.kml',kind:'kml',text:SAMPLE}];parseAll();build();
 }
